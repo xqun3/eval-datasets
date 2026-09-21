@@ -55,8 +55,22 @@ sys.path.insert(0, os.path.join(ROOT, "benchmark_v0.2", "adapter"))
 import compare                                   # noqa: E402
 import aggregate                                 # noqa: E402
 
-# 美元 / 1M tokens。**占位量级，不是真实报价**，务必用 --price-a/--price-b 覆盖。
-DEFAULT_PRICE = {"a": (0.075, 0.30), "b": (15.0, 75.0)}
+# 美元 / 1M tokens。查于 2026-09-21 官方定价页。
+#
+#   gemini-3.8-flash    $0.75 / $3.75   global 端点，2026-12-31 前的introductory 价
+#                       2027-01-01 起涨到 $1.50 / $7.50（翻倍，跑长期测算要用这个）
+#                       ⚠ 区域端点更贵（约 $0.825 / $8.25）。本轮跑的是 global。
+#                       ⚠ 输出价含 thinking tokens。
+#   claude-opus-4-8     $5.00 / $25.00  Opus 4.x 全系一个价
+#                       ⚠ Opus 4.7 起换了 tokenizer，同样的文本比 4.6 多出约 30%
+#                          token。所以 B 的 token 用量不能直接读成「话多」，
+#                          其中有一部分是计数口径差异。
+#
+# 实际价差只有 6.67×（两个方向都是），不是直觉中的两个数量级。
+DEFAULT_PRICE = {"a": (0.75, 3.75), "b": (5.00, 25.00)}
+
+# 2027-01-01 起的 gemini 标准价，用 --price-a 1.50,7.50 切换
+PRICE_NOTE_2027 = (1.50, 7.50)
 
 DEFAULT_WEIGHTS = {"quality": 0.5, "latency": 0.2, "cost": 0.3,
                    "tokens_in": 0.0, "tokens_out": 0.0}
@@ -183,19 +197,24 @@ def decide(cat_a, cat_b, weights, gate, va, vb, unusable):
         blocked_b = gate and gb == "FAIL"
 
         if blocked_a and blocked_b:
-            winner, why = "—", "两侧均未通过准入"
+            # 给「—」在路由表里没用：线上流量总得发给某个模型。
+            # 仍按加权分选一个，但明确标成降级——「矮子里拔将军」这件事
+            # 必须在表里看得见，不能让它长得跟正常推荐一样。
+            winner = "A" if sa >= sb else "B"
+            why = "⚠ 降级：两侧均未通过准入，这是矮子里拔将军"
+            degraded = True
         elif blocked_a:
-            winner, why = "B", "A 未通过准入，被门禁排除"
+            winner, why, degraded = "B", "A 未通过准入，被门禁排除", False
         elif blocked_b:
-            winner, why = "A", "B 未通过准入，被门禁排除"
+            winner, why, degraded = "A", "B 未通过准入，被门禁排除", False
         elif abs(sa - sb) < 1e-9:
-            winner, why = "平", "综合分完全相同"
+            winner, why, degraded = "平", "综合分完全相同", False
         else:
             winner = "A" if sa > sb else "B"
-            why = ""
+            why, degraded = "", False
 
         rows.append({"cat": cat, "dims": dims, "sa": sa, "sb": sb,
-                     "winner": winner, "why": why,
+                     "winner": winner, "why": why, "degraded": degraded,
                      "verdict_a": ga, "verdict_b": gb,
                      "n": A["n"], "missing": A["missing"] + B["missing"]})
     return rows
@@ -255,9 +274,12 @@ def main() -> int:
                                for k, v in weights.items() if v))
     print("价格(美元/1M tokens): A 输入 %.4f 输出 %.4f  |  B 输入 %.4f 输出 %.4f"
           % (pa[0], pa[1], pb[0], pb[1]))
-    if not args.price_a or not args.price_b:
-        print("⚠ 有一侧用的是内置占位价，不是真实报价。成本维结论仅供演示，"
-              "请用 --price-a/--price-b 传真实单价。")
+    if not args.price_a and not args.price_b:
+        print("价格来源: 2026-09-21 官方定价页。gemini 侧是 2026-12-31 前的 "
+              "introductory 价，2027-01-01 起翻倍至 $1.50/$7.50 —— "
+              "做长期测算请加 --price-a 1.50,7.50 重跑。")
+    elif not args.price_a or not args.price_b:
+        print("⚠ 只覆盖了一侧价格，另一侧用的是内置默认值，两边口径可能不一致。")
     print("门禁: %s" % ("开（准入 FAIL 直接出局）" if args.gate else "关（只报告）"))
     print()
 
