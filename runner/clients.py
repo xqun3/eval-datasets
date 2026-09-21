@@ -36,14 +36,18 @@ class Usage(object):
         self.calls = 0
         self.prompt_tokens = 0
         self.completion_tokens = 0
+        # 已含在 completion_tokens 里，单列只为披露明细，不要重复计价
+        self.thinking_tokens = 0
         self.usd = 0.0
         self.wall_s = 0.0
         self.errors = 0
 
-    def add(self, pt: int, ct: int, usd: float, wall_s: float) -> None:
+    def add(self, pt: int, ct: int, usd: float, wall_s: float,
+            tt: int = 0) -> None:
         self.calls += 1
         self.prompt_tokens += pt
         self.completion_tokens += ct
+        self.thinking_tokens += tt
         self.usd += usd
         self.wall_s += wall_s
 
@@ -51,10 +55,32 @@ class Usage(object):
         return {"calls": self.calls,
                 "prompt_tokens": self.prompt_tokens,
                 "completion_tokens": self.completion_tokens,
+                "thinking_tokens": self.thinking_tokens,
                 "tokens": self.prompt_tokens + self.completion_tokens,
                 "usd": round(self.usd, 6),
                 "wall_s": round(self.wall_s, 3),
                 "errors": self.errors}
+
+
+# Gemini 3 系的思考档位走 generationConfig.thinkingConfig.thinkingLevel。
+# 实测（gemini-3.8-flash）：
+#   不传      → thoughtsTokenCount 69~179，同题重跑波动极大
+#   "low"     → 0
+#   "high"    → 160
+#   "minimal" → HTTP 400，该模型不支持
+# 旧的 thinkingBudget 对 Gemini 3 **完全失效**（传 0 仍然思考 60+ token），
+# 所以这里只认 thinkingLevel，不提供 budget 入口，免得给人虚假的控制感。
+THINKING_LEVELS = ("low", "high")
+
+
+def _apply_thinking_level(gen_cfg: Dict[str, Any],
+                          level: Optional[str]) -> None:
+    if not level:
+        return
+    if level not in THINKING_LEVELS:
+        raise ValueError("thinking_level 只支持 %s（minimal 会被服务端 400 拒绝）；"
+                         "收到 %r" % (list(THINKING_LEVELS), level))
+    gen_cfg["thinkingConfig"] = {"thinkingLevel": level.upper()}
 
 
 class BaseModel(object):
@@ -70,7 +96,8 @@ class BaseModel(object):
                  max_tokens: int = 4096, timeout_s: float = 120.0,
                  retries: int = 3,
                  usd_per_1k_prompt: float = 0.0,
-                 usd_per_1k_completion: float = 0.0):
+                 usd_per_1k_completion: float = 0.0,
+                 thinking_level: Optional[str] = None):
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -78,6 +105,9 @@ class BaseModel(object):
         self.retries = retries
         self.p_rate = usd_per_1k_prompt
         self.c_rate = usd_per_1k_completion
+        # None = 跑在 provider 默认档。默认档不一定等于「不思考」，
+        # 也不保证稳定，跨模型对比时应当显式指定。
+        self.thinking_level = thinking_level
         self.usage = Usage()
         # 被服务端拒收、只能摘掉的采样参数（如新版 Claude 的 temperature）。
         # 非空 = 这个模型没跑在我们指定的采样设置上，对比时要当成已知偏差。
@@ -124,10 +154,22 @@ class BaseModel(object):
         self.usage.errors += 1
         raise ModelError("%s 请求失败: %s" % (self.tag, last))
 
-    def _record(self, pt: int, ct: int, latency_s: float) -> Dict[str, Any]:
+    def _record(self, pt: int, ct: int, latency_s: float,
+                thinking: int = 0) -> Dict[str, Any]:
+        """``ct`` 必须是**计费输出量**，thinking token 要已经含在里面。
+
+        两家的原始字段语义不一样，调用方负责先对齐：
+          - Anthropic ``output_tokens`` 本身已含 thinking，直接传，明细另给；
+          - Gemini ``candidatesTokenCount`` **不含** thinking，调用方必须自己
+            加上 ``thoughtsTokenCount``（``total = prompt + candidates +
+            thoughts``），而 thinking 是按输出价计费的。
+
+        这里曾经漏加 thoughts，导致 Gemini 侧成本被单边低估。
+        """
         usd = pt / 1000.0 * self.p_rate + ct / 1000.0 * self.c_rate
-        self.usage.add(pt, ct, usd, latency_s)
+        self.usage.add(pt, ct, usd, latency_s, thinking)
         return {"prompt_tokens": pt, "completion_tokens": ct,
+                "thinking_tokens": thinking,
                 "usd": usd, "latency_s": round(latency_s, 3)}
 
 
@@ -156,6 +198,7 @@ class GoogleModel(BaseModel):
             "generationConfig": {"temperature": self.temperature,
                                  "maxOutputTokens": self.max_tokens},
         }
+        _apply_thinking_level(payload["generationConfig"], self.thinking_level)
         if system:
             payload["systemInstruction"] = {"parts": [{"text": system}]}
 
@@ -172,9 +215,11 @@ class GoogleModel(BaseModel):
         parts = ((cands[0].get("content") or {}).get("parts") or [])
         text = "".join(p.get("text", "") for p in parts)
         um = body.get("usageMetadata") or {}
+        thoughts = int(um.get("thoughtsTokenCount") or 0)
         out = self._record(int(um.get("promptTokenCount") or 0),
-                           int(um.get("candidatesTokenCount") or 0),
-                           got["latency_s"])
+                           int(um.get("candidatesTokenCount") or 0) + thoughts,
+                           got["latency_s"],
+                           thinking=thoughts)
         out["text"] = text
         out["finish_reason"] = cands[0].get("finishReason")
         return out
@@ -355,6 +400,7 @@ class VertexGeminiModel(_VertexBase):
             "generationConfig": {"temperature": self.temperature,
                                  "maxOutputTokens": self.max_tokens},
         }
+        _apply_thinking_level(payload["generationConfig"], self.thinking_level)
         if system:
             payload["systemInstruction"] = {"parts": [{"text": system}]}
 
@@ -375,9 +421,11 @@ class VertexGeminiModel(_VertexBase):
         if not text and finish in ("SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST"):
             raise ModelError("%s 被安全策略拦截（finishReason=%s）" % (self.tag, finish))
 
+        thoughts = int(um.get("thoughtsTokenCount") or 0)
         out = self._record(int(um.get("promptTokenCount") or 0),
-                           int(um.get("candidatesTokenCount") or 0),
-                           got["latency_s"])
+                           int(um.get("candidatesTokenCount") or 0) + thoughts,
+                           got["latency_s"],
+                           thinking=thoughts)
         out["text"] = text
         out["finish_reason"] = finish
         return out
@@ -428,9 +476,13 @@ class VertexAnthropicModel(_VertexBase):
         text = "".join(b.get("text", "") for b in (body.get("content") or [])
                        if b.get("type") == "text")
         um = body.get("usage") or {}
+        # Anthropic 的 output_tokens **已经包含** thinking token，不要再加一遍。
+        # 这里单独把明细取出来，只为与 Gemini 侧对账时看得见。
+        det = um.get("output_tokens_details") or {}
         out = self._record(int(um.get("input_tokens") or 0),
                            int(um.get("output_tokens") or 0),
-                           got["latency_s"])
+                           got["latency_s"],
+                           thinking=int(det.get("thinking_tokens") or 0))
         out["text"] = text
         out["finish_reason"] = body.get("stop_reason")
         return out
@@ -472,7 +524,7 @@ def build(spec: str, **kw) -> BaseModel:
                          % (provider, sorted(PROVIDERS) + ["scripted"]))
 
     common = ("temperature", "max_tokens", "timeout_s", "retries",
-              "usd_per_1k_prompt", "usd_per_1k_completion")
+              "usd_per_1k_prompt", "usd_per_1k_completion", "thinking_level")
     if provider.startswith("vertex"):
         allowed = common + ("project", "location", "quota_project")
     else:
