@@ -1,0 +1,74 @@
+{
+  "category": "G4",
+  "name": "文案撰写",
+  "primary_layer": "L3",
+  "checkers": ["format_compliance", "rubric_judge"],
+  "metrics": [
+    {
+      "id": "rubric_mean_5",
+      "name": "Rubric 均分（5 分制）",
+      "role": "primary",
+      "quadrant": "quality",
+      "direction": "higher_better",
+      "unit": "score_5",
+      "source": {"kind": "sub_metric", "checker": "rubric_judge", "key": "rubric_mean_5"},
+      "aggregate": "mean",
+      "instance_threshold": {"op": ">=", "value": 4.0, "code": "rubric_judge.py:85"},
+      "admission_threshold": {"op": ">=", "value": 4.0},
+      "implemented": false,
+      "blocked_by": "env['judge'] 未接真实 LLM，默认回落到 heuristic_judge（rubric_judge.py:30-55），打分只看 must_cover 字面覆盖率与格式标记数，不能代表写作质量",
+      "notes": "SCHEMA §0 的 G4 主指标。当前数据集的 3 条 G4 实例走的是 format_compliance，rubric 这条线还没有实例落地"
+    },
+    {
+      "id": "format_compliance_rate",
+      "name": "格式合规率",
+      "role": "primary",
+      "quadrant": "quality",
+      "direction": "higher_better",
+      "unit": "ratio",
+      "source": {"kind": "score", "checker": "format_compliance"},
+      "aggregate": "mean",
+      "instance_threshold": {"op": "==", "value": 1.0, "code": "format_compliance.py:175"},
+      "admission_threshold": {"op": ">=", "value": 0.95},
+      "implemented": true,
+      "notes": "单条是全有全无（所有可机检约束必须全过），门类级取均值。这是目前 G4 唯一能确定性算出来的指标"
+    },
+    {
+      "id": "constraints_checked_per_instance",
+      "name": "每题可机检约束数",
+      "role": "auxiliary",
+      "quadrant": "reliability",
+      "direction": "higher_better",
+      "unit": "count",
+      "source": {"kind": "sub_metric", "checker": "format_compliance", "key": "constraints_checked"},
+      "aggregate": "mean",
+      "implemented": true,
+      "notes": "区分度守卫。只剩 1 条可机检约束的题，一个 2 字符的敷衍回答也能拿满分——IFEval 抽样时因此加了 ≥2 条的硬门槛（见 dataset/scripts/refetch_ifeval.py）"
+    },
+    {
+      "id": "unsupported_constraint_rate",
+      "name": "不支持约束占比",
+      "role": "auxiliary",
+      "quadrant": "reliability",
+      "direction": "lower_better",
+      "unit": "ratio",
+      "source": {"kind": "derived", "checker": "format_compliance", "expr": "sum(unsupported) / sum(unsupported + constraints_checked + semantic_deferred)"},
+      "aggregate": "rate",
+      "implemented": true,
+      "notes": "判分器认不出来的约束类型占比。这个值高说明题目在考判分器覆盖面，不是在考模型"
+    },
+    {
+      "id": "semantic_deferred_rate",
+      "name": "语义约束待判占比",
+      "role": "auxiliary",
+      "quadrant": "reliability",
+      "direction": "lower_better",
+      "unit": "ratio",
+      "source": {"kind": "derived", "checker": "format_compliance", "expr": "sum(semantic_deferred) / sum(unsupported + constraints_checked + semantic_deferred)"},
+      "aggregate": "rate",
+      "implemented": true,
+      "notes": "「必须提到 X」这类约束机检只能做字面匹配，真正判定需要 judge。这部分当前被搁置，不计入 score"
+    }
+  ],
+  "notes": "G4 是「主指标未实现、副指标能算」的典型。SCHEMA §0 写的 Rubric ≥4.0 依赖 LLM judge；现在能给出的只有 format_compliance。报表里不得把 format_compliance_rate 当成 G4 主指标来做准入判定"
+}

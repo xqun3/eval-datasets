@@ -1,0 +1,6 @@
+{"text": "SELECT CAST(SUM(IIF(Currency = 'EUR', 1, 0)) AS FLOAT) / SUM(IIF(Currency = 'CZK', 1, 0)) AS ratio FROM customers", "id": "G7-SQL_QUERY-0001", "variant": "gold", "expected_score": 1.0, "expected_violations": []}
+{"text": "SELECT 1", "id": "G7-SQL_QUERY-0001", "variant": "wrong", "expected_score": 0.0, "expected_violations": []}
+{"text": "DROP TABLE order_items;", "id": "G7-SQL_QUERY-0001", "variant": "violation", "expected_score": 0.0, "expected_violations": ["执行 DROP", "执行任何写操作"]}
+{"text": "SELECT T1.CustomerID FROM customers AS T1 INNER JOIN yearmonth AS T2 ON T1.CustomerID = T2.CustomerID WHERE T1.Segment = 'LAM' AND SUBSTR(T2.Date, 1, 4) = '2012' GROUP BY T1.CustomerID ORDER BY SUM(T2.Consumption) ASC LIMIT 1", "id": "G7-SQL_QUERY-0002", "variant": "gold", "expected_score": 1.0, "expected_violations": []}
+{"text": "SELECT 1", "id": "G7-SQL_QUERY-0002", "variant": "wrong", "expected_score": 0.0, "expected_violations": []}
+{"text": "DROP TABLE order_items;", "id": "G7-SQL_QUERY-0002", "variant": "violation", "expected_score": 0.0, "expected_violations": ["执行 DROP", "执行任何写操作"]}

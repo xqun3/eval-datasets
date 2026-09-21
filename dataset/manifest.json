@@ -1,0 +1,173 @@
+{
+  "total_instances": 41,
+  "schema_errors": 0,
+  "usage": "internal routing evaluation only; not for redistribution",
+  "categories": [
+    {
+      "category_dir": "S_safety",
+      "category": "S",
+      "instances": 3,
+      "schema_errors": 0,
+      "sources": [
+        {
+          "kind": "authored",
+          "raw": "authored.jsonl",
+          "count": 3
+        }
+      ]
+    },
+    {
+      "category_dir": "G1_knowledge_qa",
+      "category": "G1",
+      "instances": 9,
+      "schema_errors": 0,
+      "sources": [
+        {
+          "kind": "public",
+          "adapter": "simpleqa",
+          "raw": "simpleqa.jsonl",
+          "count": 3
+        },
+        {
+          "kind": "public",
+          "adapter": "chinese_simpleqa",
+          "raw": "chinese_simpleqa.jsonl",
+          "count": 3
+        },
+        {
+          "kind": "public",
+          "adapter": "frames",
+          "raw": "frames.jsonl",
+          "count": 3
+        }
+      ]
+    },
+    {
+      "category_dir": "G2_retrieval",
+      "category": "G2",
+      "instances": 3,
+      "schema_errors": 0,
+      "sources": [
+        {
+          "kind": "public",
+          "adapter": "beir",
+          "raw": "beir_scifact_queries.jsonl",
+          "count": 3
+        }
+      ]
+    },
+    {
+      "category_dir": "G3_comprehension",
+      "category": "G3",
+      "instances": 3,
+      "schema_errors": 0,
+      "sources": [
+        {
+          "kind": "authored",
+          "raw": "authored.jsonl",
+          "count": 3
+        }
+      ]
+    },
+    {
+      "category_dir": "G4_writing",
+      "category": "G4",
+      "instances": 3,
+      "schema_errors": 0,
+      "sources": [
+        {
+          "kind": "public",
+          "adapter": "ifeval",
+          "raw": "ifeval.jsonl",
+          "count": 3
+        }
+      ]
+    },
+    {
+      "category_dir": "G5_solution_design",
+      "category": "G5",
+      "instances": 3,
+      "schema_errors": 0,
+      "sources": [
+        {
+          "kind": "authored",
+          "raw": "authored.jsonl",
+          "count": 3
+        }
+      ]
+    },
+    {
+      "category_dir": "G6_data_analysis",
+      "category": "G6",
+      "instances": 2,
+      "schema_errors": 0,
+      "sources": [
+        {
+          "kind": "public",
+          "adapter": "dabstep",
+          "raw": "dabstep.jsonl",
+          "count": 2
+        }
+      ]
+    },
+    {
+      "category_dir": "G7_code_sql",
+      "category": "G7",
+      "instances": 6,
+      "schema_errors": 0,
+      "sources": [
+        {
+          "kind": "public",
+          "adapter": "bird_sql",
+          "raw": "bird_minidev.jsonl",
+          "count": 3
+        },
+        {
+          "kind": "public",
+          "adapter": "bigcodebench",
+          "raw": "bigcodebench.jsonl",
+          "count": 3
+        }
+      ]
+    },
+    {
+      "category_dir": "G8_diagnosis",
+      "category": "G8",
+      "instances": 3,
+      "schema_errors": 0,
+      "sources": [
+        {
+          "kind": "authored",
+          "raw": "authored.jsonl",
+          "count": 3
+        }
+      ]
+    },
+    {
+      "category_dir": "G9_tool_ops",
+      "category": "G9",
+      "instances": 3,
+      "schema_errors": 0,
+      "sources": [
+        {
+          "kind": "authored",
+          "raw": "authored.jsonl",
+          "count": 3
+        }
+      ]
+    },
+    {
+      "category_dir": "G10_communication",
+      "category": "G10",
+      "instances": 3,
+      "schema_errors": 0,
+      "sources": [
+        {
+          "kind": "authored",
+          "raw": "authored.jsonl",
+          "count": 3
+        }
+      ]
+    }
+  ]
+}

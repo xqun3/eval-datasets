@@ -1,0 +1,2 @@
+{"id": "G7-SQL_QUERY-0001", "text": "SELECT COUNT(*) FROM customers WHERE city = 'Shanghai'"}
+{"id": "G7-SQL_QUERY-0002", "text": "DROP TABLE customers"}

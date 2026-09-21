@@ -1,0 +1,74 @@
+{
+  "category": "G6",
+  "name": "数据分析",
+  "primary_layer": "L1",
+  "checkers": ["numeric_em"],
+  "metrics": [
+    {
+      "id": "numeric_em",
+      "name": "数值精确匹配率",
+      "role": "primary",
+      "quadrant": "quality",
+      "direction": "higher_better",
+      "unit": "ratio",
+      "source": {"kind": "score", "checker": "numeric_em"},
+      "aggregate": "mean",
+      "instance_threshold": {"op": "==", "value": 1.0, "code": "numeric_em.py:100"},
+      "admission_threshold": {"op": ">=", "value": 0.9},
+      "implemented": true,
+      "notes": "单条全有全无。mode 决定比对方式（数值按 rel_tol/abs_tol，枚举/字符串按归一化后精确相等）"
+    },
+    {
+      "id": "caliber_error_rate",
+      "name": "口径错误率",
+      "role": "primary",
+      "quadrant": "quality",
+      "direction": "lower_better",
+      "unit": "ratio",
+      "source": {"kind": "derived", "expr": "答案数值算错但计算过程无误、错因归属于口径理解的题目占比"},
+      "aggregate": "rate",
+      "implemented": false,
+      "blocked_by": "需要执行沙箱 + 过程留痕才能区分「算错」与「口径理解错」；当前只有最终答案的 EM，无法归因",
+      "notes": "SCHEMA §0 要求 ≤3%。DABStep 的 Q2「top country for fraud」实测就是纯口径题：按笔数 NL 2955 > BE 2493，按金额占比 BE 12.27% > NL 12.18%，金标取 BE。口径「fraudulent volume / total volume」只写在 manual.md 第 225 行。答错这题的模型不是不会算，是没读手册"
+    },
+    {
+      "id": "rel_tol_used",
+      "name": "实际使用的相对容差",
+      "role": "auxiliary",
+      "quadrant": "reliability",
+      "direction": "lower_better",
+      "unit": "ratio",
+      "source": {"kind": "sub_metric", "checker": "numeric_em", "key": "rel_tol"},
+      "aggregate": "max",
+      "implemented": true,
+      "notes": "容差审计。容差放得越宽，EM 越虚。报表里取 max 暴露最宽的那道题"
+    },
+    {
+      "id": "context_attached_rate",
+      "name": "语料挂载率",
+      "role": "guard",
+      "quadrant": "reliability",
+      "direction": "higher_better",
+      "unit": "ratio",
+      "source": {"kind": "derived", "expr": "context.files 非空的实例占比"},
+      "aggregate": "rate",
+      "admission_threshold": {"op": "==", "value": 1.0},
+      "implemented": true,
+      "notes": "有效性守卫。DABStep 在 HF 上只暴露 question/answer/guidelines/level，不带数据。没挂语料的 G6 题实质是在让模型闭卷背答案，题目无效。语料由 dataset/scripts/fetch_dabstep_context.py 拉到 G6_data_analysis/context/，只入库 sha256，22.5MB 的 payments.csv 不入库"
+    },
+    {
+      "id": "exec_sandbox_available",
+      "name": "执行沙箱可用性",
+      "role": "guard",
+      "quadrant": "reliability",
+      "direction": "higher_better",
+      "unit": "ratio",
+      "source": {"kind": "derived", "expr": "该门类是否具备可执行环境（受限 python + 只读挂载 context/）"},
+      "aggregate": "max",
+      "implemented": false,
+      "blocked_by": "尚未搭建执行沙箱",
+      "notes": "DABStep 本质是 agentic 任务：读手册 → 载数据 → 写代码 → 得数。现在只挂了文件没有执行环境，等于把 agentic 任务降级成了长上下文阅读题。这会系统性低估带工具的模型"
+    }
+  ],
+  "notes": "G6 当前只有 2 条实例（其余 DABStep 题因无法离线判分被剔除）。样本量不足以支撑 ≥0.9 的准入判定，报表须标注 n=2"
+}

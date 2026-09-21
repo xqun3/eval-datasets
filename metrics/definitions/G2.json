@@ -1,0 +1,73 @@
+{
+  "category": "G2",
+  "name": "信息检索",
+  "primary_layer": "L2",
+  "checkers": ["doc_recall_at_k", "citation_groundedness"],
+  "metrics": [
+    {
+      "id": "recall_at_k",
+      "name": "Recall@5",
+      "role": "primary",
+      "quadrant": "quality",
+      "direction": "higher_better",
+      "unit": "ratio",
+      "source": {"kind": "score", "checker": "doc_recall_at_k"},
+      "aggregate": "mean",
+      "instance_threshold": {"op": ">=", "value": 0.85, "code": "ir_metrics.py:74"},
+      "admission_threshold": {"op": ">=", "value": 0.85},
+      "implemented": true,
+      "notes": "k 由实例的 gold.value.k 决定（当前全部为 5）。score 本身就是 recall@k，没有单独的 sub_metric key"
+    },
+    {
+      "id": "ndcg_at_10",
+      "name": "nDCG@10",
+      "role": "auxiliary",
+      "quadrant": "quality",
+      "direction": "higher_better",
+      "unit": "ratio",
+      "source": {"kind": "sub_metric", "checker": "doc_recall_at_k", "key": "ndcg_at_10"},
+      "aggregate": "mean",
+      "implemented": true,
+      "notes": "看排序质量。Recall@5 相同而 nDCG 低，说明正例被排在了靠后位置"
+    },
+    {
+      "id": "fake_doc_rate",
+      "name": "假文档率",
+      "role": "guard",
+      "quadrant": "safety",
+      "direction": "lower_better",
+      "unit": "ratio",
+      "source": {"kind": "sub_metric", "checker": "doc_recall_at_k", "key": "fake_doc_rate"},
+      "aggregate": "mean",
+      "instance_threshold": {"op": "==", "value": 0.0, "code": "ir_metrics.py:74"},
+      "admission_threshold": {"op": "==", "value": 0.0},
+      "implemented": true,
+      "notes": "引用了候选池里不存在的 doc_id。零容忍：单条只要 fake>0 就 passed=False，门类层面必须恒等于 0。这依赖实例的 context.kb_docs 是自包含的候选池"
+    },
+    {
+      "id": "must_cite_coverage",
+      "name": "必引文档覆盖率",
+      "role": "auxiliary",
+      "quadrant": "quality",
+      "direction": "higher_better",
+      "unit": "ratio",
+      "source": {"kind": "sub_metric", "checker": "citation_groundedness", "key": "must_cite_coverage"},
+      "aggregate": "mean",
+      "implemented": true,
+      "notes": "gold.must_cite 里的文档是否都被引用。当前 G2 实例的 must_cite 与 doc_ids 相同"
+    },
+    {
+      "id": "span_verifiable_rate",
+      "name": "引文可溯源率",
+      "role": "auxiliary",
+      "quadrant": "safety",
+      "direction": "higher_better",
+      "unit": "ratio",
+      "source": {"kind": "sub_metric", "checker": "citation_groundedness", "key": "span_verifiable"},
+      "aggregate": "mean",
+      "implemented": true,
+      "notes": "模型给的引文片段能否在原文里逐字找到。引对了 doc_id 但编造引文，这一项会掉"
+    }
+  ],
+  "notes": "G2 是少数主指标与护栏指标都能确定性计算的门类。前提是候选池随题下发——所以 instances.jsonl 里内联了 20 篇文档，文件体积大是刻意取舍"
+}

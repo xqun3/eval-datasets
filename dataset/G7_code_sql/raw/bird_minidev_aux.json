@@ -1,0 +1,23 @@
+{
+  "_note": "BIRD 官方把数据库作为单独的 ~600MB 压缩包分发，HF 上的 bird_mini_dev 只有题目没有库。这里按本地抽样的 3 道题实际引用到的表与列，重建了一个最小可执行的 debit_card_specializing。列名、类型、语义与官方一致，但**行数据是构造的**，因此金标 SQL 的执行结果与官方 leaderboard 不可比 —— 它只用来验证「转换 → 执行 → 判分」链路是通的。要跑真实分数必须换成官方 DB 快照，把下面的 ddl 整体替换即可，题目侧不用动。",
+  "_provenance": {
+    "schema_source": "reconstructed_from_gold_sql",
+    "data_source": "authored",
+    "covers_questions": [
+      "What is the ratio of customers who pay in EUR against customers who pay in CZK?",
+      "In 2012, who had the least consumption in LAM?",
+      "What was the average monthly consumption of customers in SME for the year 2013?"
+    ],
+    "expected_gold_results": {
+      "q_ratio_eur_czk": 2.0,
+      "q_least_consumption_lam_2012": 4,
+      "q_avg_monthly_sme_2013": 62.5
+    }
+  },
+  "dbs": {
+    "debit_card_specializing": {
+      "dialect": "sqlite",
+      "ddl": "CREATE TABLE customers (\n  CustomerID INTEGER PRIMARY KEY,\n  Segment    TEXT NOT NULL,          -- LAM / SME / KAM\n  Currency   TEXT NOT NULL           -- EUR / CZK\n);\nCREATE TABLE yearmonth (\n  CustomerID  INTEGER NOT NULL REFERENCES customers(CustomerID),\n  Date        TEXT NOT NULL,         -- 'YYYYMM'，前 4 位是年份\n  Consumption REAL NOT NULL\n);\nINSERT INTO customers (CustomerID, Segment, Currency) VALUES\n  (1,'SME','EUR'),\n  (2,'LAM','CZK'),\n  (3,'KAM','EUR'),\n  (4,'LAM','EUR'),\n  (5,'SME','CZK'),\n  (6,'SME','EUR');\nINSERT INTO yearmonth (CustomerID, Date, Consumption) VALUES\n  (2,'201201',100.0),\n  (2,'201202',150.0),\n  (4,'201201', 90.0),\n  (4,'201203', 60.0),\n  (2,'201301',500.0),\n  (1,'201301',1200.0),\n  (1,'201302',600.0),\n  (5,'201301',300.0),\n  (6,'201305',900.0),\n  (3,'201304',777.0);\n"
+    }
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "category": "G1",
+  "name": "知识问答",
+  "primary_layer": "L2",
+  "checkers": ["fact_recall"],
+  "metrics": [
+    {
+      "id": "fact_recall",
+      "name": "事实点召回率 FactRecall",
+      "role": "primary",
+      "quadrant": "quality",
+      "direction": "higher_better",
+      "unit": "ratio",
+      "source": {"kind": "sub_metric", "checker": "fact_recall", "key": "fact_recall"},
+      "aggregate": "mean",
+      "instance_threshold": {"op": ">=", "value": 0.85, "code": "fact_recall.py:117"},
+      "admission_threshold": {"op": ">=", "value": 0.85},
+      "implemented": true,
+      "notes": "required 事实点命中数 / required 总数。fact.text 支持 | 分隔同义写法；纯数字事实走容差匹配"
+    },
+    {
+      "id": "hallucination_rate",
+      "name": "幻觉率",
+      "role": "primary",
+      "quadrant": "safety",
+      "direction": "lower_better",
+      "unit": "ratio",
+      "source": {"kind": "derived", "expr": "答案中出现的、与 ref_answer 矛盾的事实主张数 / 总事实主张数"},
+      "aggregate": "rate",
+      "admission_threshold": {"op": "<=", "value": 0.02},
+      "implemented": false,
+      "blocked_by": "fact_recall 只统计『该说的说了没有』，不统计『不该说的说了没有』。要判矛盾必须引入 LLM judge 做 NLI 式判定（env['fact_judge'] 钩子已预留，缺真实 judge 实现）",
+      "notes": "SCHEMA §0 写了 ≤2% 但从来没算过。当前报表里这一格是空的，不要假装它是 0"
+    },
+    {
+      "id": "optional_fact_bonus",
+      "name": "加分事实命中率",
+      "role": "auxiliary",
+      "quadrant": "quality",
+      "direction": "higher_better",
+      "unit": "ratio",
+      "source": {"kind": "derived", "expr": "sub_metrics.optional_hit / sub_metrics.optional_total"},
+      "aggregate": "mean_of_nonnull",
+      "implemented": true,
+      "notes": "required=false 的事实点，不影响主分，用于区分『答对了』和『答得全』"
+    },
+    {
+      "id": "judge_stub_ratio",
+      "name": "判分器降级比例",
+      "role": "auxiliary",
+      "quadrant": "reliability",
+      "direction": "lower_better",
+      "unit": "ratio",
+      "source": {"kind": "sub_metric", "checker": "fact_recall", "key": "judge_stub"},
+      "aggregate": "rate",
+      "implemented": true,
+      "notes": "为 true 表示这条是纯规则匹配判的，没有 LLM judge 参与。比例高说明这批分数的语义鲁棒性差（改写同义就判错），看主指标时必须一起看"
+    }
+  ],
+  "notes": "G1 的主指标已可算；幻觉率这一半始终缺位，是本门类最大的未覆盖面"
+}

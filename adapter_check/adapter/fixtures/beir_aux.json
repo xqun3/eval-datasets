@@ -1,0 +1,22 @@
+{
+  "corpus": {
+    "d1": {"title": "Vitamin D and acute respiratory tract infection", "text": "A meta-analysis of 25 randomised controlled trials found that vitamin D supplementation reduced the risk of acute respiratory tract infection, with the largest effect in participants with baseline deficiency."},
+    "d2": {"title": "Vitamin D dosing regimens", "text": "Bolus dosing of vitamin D did not show a protective effect against respiratory infection, whereas daily or weekly supplementation did."},
+    "d3": {"title": "Calcium supplementation and bone density", "text": "Calcium supplementation increased bone mineral density modestly in postmenopausal women; vitamin D co-administration was common."},
+    "d4": {"title": "Intermittent fasting and metabolic health", "text": "Alternate day fasting improved insulin sensitivity in adults with obesity over a twelve week intervention, independent of total weight loss."},
+    "d5": {"title": "Time restricted eating trial", "text": "Eight hour time restricted eating produced a small improvement in fasting insulin among adults, but no change in HbA1c."},
+    "d6": {"title": "Ketogenic diets and glycaemic control", "text": "Low carbohydrate ketogenic diets lowered fasting glucose in adults with type 2 diabetes."},
+    "d7": {"title": "Sparse attention for long documents", "text": "We introduce a sparse attention mechanism that scales transformer retrieval models to documents of tens of thousands of tokens."},
+    "d8": {"title": "Dense passage retrieval", "text": "Dense passage retrieval with dual encoders outperforms BM25 on open domain question answering benchmarks."},
+    "d9": {"title": "Attention is not explanation", "text": "We examine whether transformer attention weights can be interpreted as explanations of model predictions."},
+    "d10": {"title": "Nutrition labelling policy", "text": "Front of package nutrition labelling changed purchasing behaviour in a supermarket field experiment."},
+    "d11": {"title": "Sleep duration and immunity", "text": "Short sleep duration was associated with increased susceptibility to the common cold in a prospective cohort."},
+    "d12": {"title": "Zinc lozenges and cold duration", "text": "Zinc lozenges shortened the duration of the common cold by about one day in pooled trials."}
+  },
+  "qrels": {
+    "q1": {"d1": 2, "d2": 1, "d3": 0},
+    "q2": {"d4": 2, "d5": 1},
+    "q3": {"d7": 2},
+    "q4": {"d10": 0}
+  }
+}

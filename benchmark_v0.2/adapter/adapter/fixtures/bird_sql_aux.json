@@ -1,0 +1,9 @@
+{
+  "dbs": {
+    "retail_mini": {
+      "dialect": "sqlite",
+      "snapshot_ref": "blob://sha256:0000000000000000000000000000000000000000000000000000000000000001",
+      "ddl": "CREATE TABLE customers (\n  id INTEGER PRIMARY KEY,\n  name TEXT NOT NULL,\n  city TEXT,\n  vip INTEGER DEFAULT 0\n);\nCREATE TABLE products (\n  id INTEGER PRIMARY KEY,\n  name TEXT NOT NULL,\n  category TEXT NOT NULL,\n  price REAL NOT NULL\n);\nCREATE TABLE orders (\n  id INTEGER PRIMARY KEY,\n  customer_id INTEGER REFERENCES customers(id),\n  order_date TEXT,\n  amount REAL,\n  status TEXT\n);\nCREATE TABLE order_items (\n  id INTEGER PRIMARY KEY,\n  order_id INTEGER REFERENCES orders(id),\n  product_id INTEGER REFERENCES products(id),\n  qty INTEGER\n);\nINSERT INTO customers (id, name, city, vip) VALUES (1,'Alice','Shanghai',1),(2,'Bob','Beijing',0),(3,'Carol','Shanghai',0),(4,'Dan','Shenzhen',1),(5,'Erin',NULL,0);\nINSERT INTO products (id, name, category, price) VALUES (1,'Keyboard','peripheral',199.0),(2,'Monitor','display',1299.5),(3,'Mouse','peripheral',89.9),(4,'Dock','peripheral',459.0);\nINSERT INTO orders (id, customer_id, order_date, amount, status) VALUES (1,1,'2026-01-15',288.9,'paid'),(2,1,'2026-02-03',1299.5,'paid'),(3,2,'2025-12-30',199.0,'paid'),(4,3,'2026-03-11',459.0,'cancelled'),(5,4,'2026-03-12',1758.5,'paid'),(6,5,'2026-04-01',NULL,'pending');\nINSERT INTO order_items (id, order_id, product_id, qty) VALUES (1,1,1,1),(2,1,3,1),(3,2,2,1),(4,3,1,1),(5,4,4,1),(6,5,2,1),(7,5,4,1);\n"
+    }
+  }
+}

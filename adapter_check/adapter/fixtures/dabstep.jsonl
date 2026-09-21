@@ -1,0 +1,4 @@
+{"task_id": 1, "question": "What is the total transaction volume for merchant 'Crossfit_Hanna' in January 2026?", "guidance": "Answer must be a number rounded to 2 decimal places, no currency symbol.", "level": "easy", "answer": "184320.55", "file_ids": ["payments.csv"]}
+{"task_id": 2, "question": "Which card scheme has the highest average fee rate for transactions above 100 EUR?", "guidance": "Answer must be the scheme name exactly as written in the fees file.", "level": "hard", "answer": "NexPay", "file_ids": ["payments.csv", "fees.json", "manual.md"]}
+{"task_id": 3, "question": "What fraction of transactions were flagged as fraudulent in Q1 2026?", "guidance": "Answer as a percentage rounded to 2 decimals, e.g. 1.23%.", "level": "hard", "answer": "2.47%", "file_ids": ["payments.csv", "manual.md"]}
+{"task_id": 4, "question": "Is this question answerable from the provided files?", "guidance": "", "level": "easy", "answer": "Not Applicable", "file_ids": []}

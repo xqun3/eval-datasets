@@ -1,0 +1,6 @@
+{"citations": ["123859"], "id": "G2-DOC_RETRIEVAL-0001", "variant": "gold", "expected_score": 1.0, "expected_violations": []}
+{"citations": ["doc-does-not-exist-0001"], "id": "G2-DOC_RETRIEVAL-0001", "variant": "wrong", "expected_score": 0.0, "expected_violations": ["编造文档ID"]}
+{"citations": ["KB-NOT-REAL-9999"], "id": "G2-DOC_RETRIEVAL-0001", "variant": "violation", "expected_score": 0.0, "expected_violations": ["编造文档ID"]}
+{"citations": ["33370"], "id": "G2-DOC_RETRIEVAL-0002", "variant": "gold", "expected_score": 1.0, "expected_violations": []}
+{"citations": ["doc-does-not-exist-0001"], "id": "G2-DOC_RETRIEVAL-0002", "variant": "wrong", "expected_score": 0.0, "expected_violations": ["编造文档ID"]}
+{"citations": ["KB-NOT-REAL-9999"], "id": "G2-DOC_RETRIEVAL-0002", "variant": "violation", "expected_score": 0.0, "expected_violations": ["编造文档ID"]}

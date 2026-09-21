@@ -1,0 +1,63 @@
+{
+  "category": "G5",
+  "name": "方案设计",
+  "primary_layer": "L3",
+  "checkers": ["rubric_judge"],
+  "metrics": [
+    {
+      "id": "rubric_mean_5",
+      "name": "Rubric 均分（5 分制）",
+      "role": "primary",
+      "quadrant": "quality",
+      "direction": "higher_better",
+      "unit": "score_5",
+      "source": {"kind": "sub_metric", "checker": "rubric_judge", "key": "rubric_mean_5"},
+      "aggregate": "mean",
+      "instance_threshold": {"op": ">=", "value": 4.0, "code": "rubric_judge.py:85"},
+      "admission_threshold": {"op": ">=", "value": 3.8},
+      "implemented": false,
+      "blocked_by": "env['judge'] 未接真实 LLM，回落 heuristic_judge",
+      "notes": "⚠️ 单条阈值（4.0，硬编码）与 SCHEMA §0 的门类准入线（3.8）不一致。两者含义不同：前者是单条 passed 的判定，后者是门类均分的准入线。aggregate.py 必须分别处理，不得混用"
+    },
+    {
+      "id": "risk_coverage",
+      "name": "风险要素覆盖率",
+      "role": "primary",
+      "quadrant": "quality",
+      "direction": "higher_better",
+      "unit": "ratio",
+      "source": {"kind": "sub_metric", "checker": "rubric_judge", "key": "must_cover_coverage"},
+      "aggregate": "mean",
+      "admission_threshold": {"op": ">=", "value": 0.8},
+      "implemented": true,
+      "notes": "复用 must_cover 覆盖率作为 SCHEMA §0 的「风险要素覆盖 ≥0.8」。实例的 gold.value.must_cover 里放的就是必须点到的风险项。这一项是字面/同义匹配，不依赖 judge，所以 implemented=true"
+    },
+    {
+      "id": "per_dim_score",
+      "name": "各维度分（按 rubric 维度展开）",
+      "role": "auxiliary",
+      "quadrant": "quality",
+      "direction": "higher_better",
+      "unit": "score_5",
+      "source": {"kind": "sub_metric", "checker": "rubric_judge", "key": "per_dim"},
+      "aggregate": "mean",
+      "implemented": false,
+      "blocked_by": "同 rubric_mean_5；且 per_dim 是 dict，aggregate 需按维度名分组求均值",
+      "notes": "维度来自实例的 gold.value.dims。展开后能看出模型是「结构差」还是「完整性差」"
+    },
+    {
+      "id": "judge_stub_ratio",
+      "name": "Judge 桩占比",
+      "role": "guard",
+      "quadrant": "reliability",
+      "direction": "lower_better",
+      "unit": "ratio",
+      "source": {"kind": "sub_metric", "checker": "rubric_judge", "key": "stub"},
+      "aggregate": "mean",
+      "admission_threshold": {"op": "==", "value": 0.0},
+      "implemented": true,
+      "notes": "报表可信度守卫。只要 >0 就说明这批 rubric 分是启发式桩打的，rubric_mean_5 一律不得用于准入决策。当前恒等于 1.0"
+    }
+  ],
+  "notes": "G5 整体卡在 judge 上。唯一可信的是 risk_coverage。在真实 judge 接通并完成 κ≥0.7 校准之前，G5 不具备准入判定能力"
+}

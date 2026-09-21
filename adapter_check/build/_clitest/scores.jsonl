@@ -1,0 +1,2 @@
+{"id": "G7-SQL_QUERY-0001", "checker": "sql_result_equiv", "score": 1.0, "passed": true, "layer": "L1", "violations": [], "sub_metrics": {"syntax_ok": 1.0, "tests_total": 1, "tests_passed": 1, "must_not_fired": 0}}
+{"id": "G7-SQL_QUERY-0002", "checker": "sql_result_equiv", "score": 0.0, "passed": false, "layer": "L1", "violations": ["执行 DROP", "执行任何写操作"], "sub_metrics": {"rules_total": 3, "rules_fired": 2, "unresolved_rules": [], "must_not_fired": 2}}

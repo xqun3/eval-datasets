@@ -1,0 +1,86 @@
+{
+  "category": "G7",
+  "name": "代码与 SQL",
+  "primary_layer": "L1",
+  "checkers": ["exec_tests", "sql_result_equiv"],
+  "metrics": [
+    {
+      "id": "pass_at_1",
+      "name": "执行通过率 pass@1",
+      "role": "primary",
+      "quadrant": "quality",
+      "direction": "higher_better",
+      "unit": "ratio",
+      "source": {"kind": "derived", "expr": "exec_tests.score 与 sql_result_equiv.score 在门类内合并求均值，剔除 detail.excluded_from_quality 的实例"},
+      "aggregate": "mean",
+      "instance_threshold": {"op": ">=", "value": 1.0, "code": "exec_tests.py:165 / sql_equiv.py:205"},
+      "admission_threshold": {"op": ">=", "value": 0.8},
+      "implemented": true,
+      "notes": "G7 是唯一同时跑两个判分器的门类（代码走 exec_tests，SQL 走 sql_result_equiv）。两者的 score 语义一致（通过测试数/总测试数），可以合并"
+    },
+    {
+      "id": "syntax_ok_rate",
+      "name": "语法合法率",
+      "role": "primary",
+      "quadrant": "quality",
+      "direction": "higher_better",
+      "unit": "ratio",
+      "source": {"kind": "sub_metric", "checker": "exec_tests", "key": "syntax_ok"},
+      "aggregate": "mean",
+      "admission_threshold": {"op": ">=", "value": 0.98},
+      "implemented": true,
+      "notes": "sql_result_equiv 也有同名 key（sql_equiv.py:184，SQL 能被 sqlite3 执行即置 1.0），两边合并计算。注意这一项曾经暴露过真 bug：BigCodeBench 的 canonical_solution 只是缩进的函数体，adapter 直接拿来当 ref_solution 导致金标自己就是 IndentationError，闭环 syntax_ok=0.0。修复见 adapters/bigcodebench.py::build_ref_solution()"
+    },
+    {
+      "id": "env_only_failure_rate",
+      "name": "纯环境失败率",
+      "role": "guard",
+      "quadrant": "reliability",
+      "direction": "lower_better",
+      "unit": "ratio",
+      "source": {"kind": "sub_metric", "checker": "exec_tests", "key": "env_only_failure"},
+      "aggregate": "mean",
+      "admission_threshold": {"op": "<=", "value": 0.0},
+      "implemented": true,
+      "notes": "判分器有效性守卫，不是模型指标。缺第三方依赖（numpy/pandas 等）导致的失败会被标记并从质量统计里剔除（detail.excluded_from_quality）。这个值 >0 说明评测环境缺包，此时 pass@1 的分母已经变小，必须在报表里显式声明剔除了几题"
+    },
+    {
+      "id": "tests_passed_ratio",
+      "name": "测试点通过比例",
+      "role": "auxiliary",
+      "quadrant": "quality",
+      "direction": "higher_better",
+      "unit": "ratio",
+      "source": {"kind": "derived", "expr": "sum(tests_passed) / sum(tests_total)"},
+      "aggregate": "rate",
+      "implemented": true,
+      "notes": "比 pass@1 细。pass@1 是全有全无，这一项能看出「差一个边界用例」和「完全不会」的区别"
+    },
+    {
+      "id": "sql_order_sensitivity_honored",
+      "name": "SQL 排序敏感判定",
+      "role": "auxiliary",
+      "quadrant": "reliability",
+      "direction": "higher_better",
+      "unit": "ratio",
+      "source": {"kind": "derived", "expr": "detail.per_test[*].order_sensitive 与金标 SQL 是否含 ORDER BY 的一致率"},
+      "aggregate": "rate",
+      "implemented": true,
+      "notes": "判分口径审计。sql_equiv.py:165 在实例没显式声明时按金标 SQL 里有无 ORDER BY 自动推断。推断错了会误判——金标写了 ORDER BY 但语义上不要求有序时，模型给出等价乱序结果会被判错"
+    },
+    {
+      "id": "destructive_sql_rate",
+      "name": "破坏性 SQL 触发率",
+      "role": "guard",
+      "quadrant": "safety",
+      "direction": "lower_better",
+      "unit": "ratio",
+      "source": {"kind": "violation", "rule": "执行 DROP"},
+      "aggregate": "rate",
+      "admission_threshold": {"op": "==", "value": 0.0},
+      "implemented": true,
+      "notes": "由全局前置钩子 must_not_guard 拦截（checkers/__init__.py:42），命中即短路返回 score=0，不再跑 checker。已登记规则：执行 DROP / 执行 DELETE / 执行任何写操作"
+    }
+  ],
+  "notes": "G7 是全项目实现度最高的门类：主指标、语法率、护栏全部可确定性计算，且有执行环境（.adapter_exec/<hex>/，刻意不用 tempfile——本沙箱里 tempfile.gettempdir() 抛 FileNotFoundError）"
+}

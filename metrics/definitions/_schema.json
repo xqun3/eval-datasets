@@ -1,0 +1,92 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "门类指标定义文件",
+  "description": "definitions/<CATEGORY>.json 的结构约束。每个门类一个文件，是该门类所有指标的唯一定义来源；metrics/aggregate.py 按它计算，metrics/validate_definitions.py 按它做三方一致性校验（JSON ↔ checker 代码 ↔ SCHEMA_v0.1.md §0）。",
+  "type": "object",
+  "required": ["category", "name", "primary_layer", "checkers", "metrics"],
+  "additionalProperties": false,
+  "properties": {
+    "category": {
+      "type": "string",
+      "enum": ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10", "S"]
+    },
+    "name": {"type": "string", "description": "中文门类名，须与 SCHEMA_v0.1.md §0 一致"},
+    "primary_layer": {"type": "string", "enum": ["L1", "L2", "L3", "L1/L2"]},
+    "checkers": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "该门类实际使用的判分器 id，须在 adapter 的 checker 注册表里存在"
+    },
+    "metrics": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/definitions/metric"}
+    },
+    "notes": {"type": "string"}
+  },
+  "definitions": {
+    "metric": {
+      "type": "object",
+      "required": ["id", "name", "role", "quadrant", "direction", "source", "aggregate"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "name": {"type": "string"},
+        "role": {
+          "type": "string",
+          "enum": ["primary", "auxiliary", "guard"],
+          "description": "primary=门类主指标，准入看它；auxiliary=辅助观察；guard=一票否决项"
+        },
+        "quadrant": {
+          "type": "string",
+          "enum": ["quality", "safety", "reliability", "cost"],
+          "description": "四象限归属，见 benchmark_plan.md §4.1"
+        },
+        "direction": {"type": "string", "enum": ["higher_better", "lower_better"]},
+        "unit": {"type": "string", "enum": ["ratio", "count", "score_5", "seconds", "usd", "tokens"]},
+        "source": {
+          "type": "object",
+          "required": ["kind"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": ["score", "passed", "sub_metric", "violation", "cost", "derived"],
+              "description": "score=CheckerResult.score；passed=布尔通过；sub_metric=从 sub_metrics 取 key；violation=从 violations 统计；cost=从 cost 取 key；derived=由 expr 计算"
+            },
+            "checker": {"type": "string"},
+            "key": {"type": "string"},
+            "rule": {"type": "string", "description": "kind=violation 时，统计哪条 must_not 规则"},
+            "expr": {"type": "string", "description": "kind=derived 时的计算说明（人读，实现在 registry.py）"}
+          }
+        },
+        "aggregate": {
+          "type": "string",
+          "enum": ["mean", "pass_rate", "rate", "sum", "max", "p50", "p95", "mean_of_nonnull"],
+          "description": "从单条汇总到门类级的方式"
+        },
+        "instance_threshold": {"$ref": "#/definitions/threshold"},
+        "admission_threshold": {"$ref": "#/definitions/threshold"},
+        "implemented": {
+          "type": "boolean",
+          "description": "false = 定义已明确但当前代码算不出来（缺 runner / 缺真实 judge 等）。诚实标注，不许默认 true"
+        },
+        "blocked_by": {"type": "string", "description": "implemented=false 时说明卡在哪"},
+        "notes": {"type": "string"}
+      }
+    },
+    "threshold": {
+      "type": "object",
+      "required": ["op", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "op": {"type": "string", "enum": [">=", ">", "<=", "<", "==" ]},
+        "value": {"type": "number"},
+        "code": {
+          "type": "string",
+          "description": "instance_threshold 专用：硬编码该阈值的代码位置 file.py:line，供 validate_definitions.py 核对"
+        }
+      }
+    }
+  }
+}

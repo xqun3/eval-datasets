@@ -1,0 +1,90 @@
+{
+  "category": "G10",
+  "name": "工作沟通与建议",
+  "primary_layer": "L3",
+  "checkers": ["rubric_judge"],
+  "metrics": [
+    {
+      "id": "situational_rubric_mean_5",
+      "name": "情境满意度 Rubric 均分",
+      "role": "primary",
+      "quadrant": "quality",
+      "direction": "higher_better",
+      "unit": "score_5",
+      "source": {"kind": "sub_metric", "checker": "rubric_judge", "key": "rubric_mean_5"},
+      "aggregate": "mean",
+      "instance_threshold": {"op": ">=", "value": 4.0, "code": "rubric_judge.py:85"},
+      "admission_threshold": {"op": ">=", "value": 4.0},
+      "implemented": false,
+      "blocked_by": "env['judge'] 未接真实 LLM，回落 heuristic_judge",
+      "notes": "G10 是全部 11 个门类里最依赖 judge 的一个。启发式桩对「语气是否得体」「是否照顾到对方处境」完全无感知——它只会数 \\n- 这类格式标记和 must_cover 字面命中，正好和这门类要考的东西相反"
+    },
+    {
+      "id": "must_cover_coverage",
+      "name": "必要信息覆盖率",
+      "role": "auxiliary",
+      "quadrant": "quality",
+      "direction": "higher_better",
+      "unit": "ratio",
+      "source": {"kind": "sub_metric", "checker": "rubric_judge", "key": "must_cover_coverage"},
+      "aggregate": "mean",
+      "implemented": true,
+      "notes": "沟通场景里的「必须说到的事」（比如延期要给新日期、要给补救方案）。不依赖 judge，是 G10 当前唯一可信的量"
+    },
+    {
+      "id": "per_dim_score",
+      "name": "各维度分",
+      "role": "auxiliary",
+      "quadrant": "quality",
+      "direction": "higher_better",
+      "unit": "score_5",
+      "source": {"kind": "sub_metric", "checker": "rubric_judge", "key": "per_dim"},
+      "aggregate": "mean",
+      "implemented": false,
+      "blocked_by": "同主指标",
+      "notes": "维度取自 gold.value.dims，典型为 得体性/完整性/可执行性/简洁性"
+    },
+    {
+      "id": "judge_stub_ratio",
+      "name": "Judge 桩占比",
+      "role": "guard",
+      "quadrant": "reliability",
+      "direction": "lower_better",
+      "unit": "ratio",
+      "source": {"kind": "sub_metric", "checker": "rubric_judge", "key": "stub"},
+      "aggregate": "mean",
+      "admission_threshold": {"op": "==", "value": 0.0},
+      "implemented": true,
+      "notes": "当前恒为 1.0。只要它 >0，本门类不出准入结论"
+    },
+    {
+      "id": "position_bias_controlled",
+      "name": "Position bias 已消除",
+      "role": "guard",
+      "quadrant": "reliability",
+      "direction": "higher_better",
+      "unit": "ratio",
+      "source": {"kind": "derived", "expr": "pairwise 比较是否真正做了 A/B 与 B/A 双向对比并取平均"},
+      "aggregate": "max",
+      "admission_threshold": {"op": "==", "value": 1.0},
+      "implemented": false,
+      "blocked_by": "真双向换位已实现（metrics/judge/runner.py::JudgeRunner.pairwise，A/B 与 B/A 各跑一次同一条对比 prompt），但需要注入真实 LLM judge 才能生效；未注入时 rubric_judge.pairwise_judge 会回落成 pointwise 差值并显式报 position_bias_controlled=false",
+      "notes": "SCHEMA §3 要求「必须双向换位消除 position bias」。⚠️ 旧实现是假的：它分别 pointwise 打分再算 net=(fwd-rev)/2，而 rev 恒等于 -fwd，所以 net 恒等于 score_a-score_b，换位在算术上不可能产生任何差异。已修复。新实现两次换位结论不一致时判 consistent=false，该条比较应作废而不是取平均"
+    },
+    {
+      "id": "judge_human_kappa",
+      "name": "Judge 与人工一致性 κ",
+      "role": "guard",
+      "quadrant": "reliability",
+      "direction": "higher_better",
+      "unit": "ratio",
+      "source": {"kind": "derived", "expr": "judge 打分与人工标注的 Cohen's κ"},
+      "aggregate": "max",
+      "admission_threshold": {"op": ">=", "value": 0.7},
+      "implemented": false,
+      "blocked_by": "无真实 judge、无人工标注集",
+      "notes": "benchmark_plan_v0.2.md §7 的硬性要求。κ<0.7 时 judge 分不得用于准入。这一项对全部 L3 门类（G4/G5/G10/S）通用"
+    }
+  ],
+  "notes": "G10 与 G5 同为纯 L3 门类，现状相同：主指标不可信，只有 must_cover_coverage 能用"
+}

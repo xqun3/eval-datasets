@@ -1,0 +1,10 @@
+# synthgen 运行时依赖: 无。
+#
+# 整个包只用标准库 (dataclasses / sqlite3 / hashlib / argparse / json / re / itertools)。
+# 验证环境: macOS + Python 3.9.6, 没有 pydantic 也没有 pytest, 因此:
+#   - 数据模型与校验用 dataclasses + 手写 validate() (synthgen/schema.py)
+#   - 测试用标准库 unittest: python -m unittest discover -s tests
+#
+# 可选 (开发期便利, 不装也能跑全部功能和全部测试):
+# pytest>=7.0          # 装了就能用 python -m pytest tests/ 收集同一批 unittest 用例
+# pydantic>=2.0        # 若要把 schema.py 换成 pydantic 实现, 只需重写 from_dict/to_dict/validate

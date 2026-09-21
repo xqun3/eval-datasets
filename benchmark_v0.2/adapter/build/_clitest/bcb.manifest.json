@@ -1,0 +1,70 @@
+{
+  "manifest_version": "0.1",
+  "adapter": "bigcodebench",
+  "dataset": "bigcodebench",
+  "dataset_version": "v0.1.4",
+  "source": "public:bigcodebench@v0.1.4",
+  "license": "Apache-2.0",
+  "commercial_use": "yes",
+  "homepage": "https://github.com/bigcode-project/bigcodebench",
+  "category": "G7",
+  "gold_type": "executable",
+  "checker": "exec_tests",
+  "split": "canary",
+  "canary_marker": "BENCHV01-CANARY-4f2a9c17-DO-NOT-TRAIN",
+  "manual_annotation_required": null,
+  "lossy_notes": "原始 complete_prompt(docstring 补全式)被丢弃，只保留 instruct_prompt；官方要求固定版本 Docker 镜像，我方 exec_tests 只用当前解释器 + subprocess，第三方库版本漂移会造成假失败 —— 因此 cfg.options['stdlib_only']=True 时会过滤掉依赖第三方库的题目（fixture 即走这条路径）。",
+  "stats": {
+    "read": 3,
+    "converted": 2,
+    "filtered": 1,
+    "errored": 0,
+    "errors": []
+  },
+  "rows": [
+    {
+      "instance_id": "G7-CODE_FUNCTION-0001",
+      "adapter": "bigcodebench",
+      "raw_id": "BigCodeBench/9001",
+      "source": "public:bigcodebench@v0.1.4",
+      "split": "canary",
+      "license": "Apache-2.0",
+      "commercial_use": "yes",
+      "homepage": "https://github.com/bigcode-project/bigcodebench",
+      "gold_type": "executable",
+      "checker": "exec_tests",
+      "difficulty_origin": "heuristic",
+      "needs_manual_annotation": false,
+      "manual_annotation": "",
+      "lossy_notes": "原始 complete_prompt(docstring 补全式)被丢弃，只保留 instruct_prompt；官方要求固定版本 Docker 镜像，我方 exec_tests 只用当前解释器 + subprocess，第三方库版本漂移会造成假失败 —— 因此 cfg.options['stdlib_only']=True 时会过滤掉依赖第三方库的题目（fixture 即走这条路径）。",
+      "entry_point": "task_func",
+      "libs": [
+        "collections"
+      ],
+      "third_party_libs": [],
+      "n_test_cases": 3
+    },
+    {
+      "instance_id": "G7-CODE_FUNCTION-0002",
+      "adapter": "bigcodebench",
+      "raw_id": "BigCodeBench/9002",
+      "source": "public:bigcodebench@v0.1.4",
+      "split": "canary",
+      "license": "Apache-2.0",
+      "commercial_use": "yes",
+      "homepage": "https://github.com/bigcode-project/bigcodebench",
+      "gold_type": "executable",
+      "checker": "exec_tests",
+      "difficulty_origin": "heuristic",
+      "needs_manual_annotation": false,
+      "manual_annotation": "",
+      "lossy_notes": "原始 complete_prompt(docstring 补全式)被丢弃，只保留 instruct_prompt；官方要求固定版本 Docker 镜像，我方 exec_tests 只用当前解释器 + subprocess，第三方库版本漂移会造成假失败 —— 因此 cfg.options['stdlib_only']=True 时会过滤掉依赖第三方库的题目（fixture 即走这条路径）。",
+      "entry_point": "task_func",
+      "libs": [
+        "statistics"
+      ],
+      "third_party_libs": [],
+      "n_test_cases": 4
+    }
+  ]
+}

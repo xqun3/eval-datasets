@@ -1,0 +1,394 @@
+{
+  "api": "https://datasets-server.huggingface.co",
+  "rows_per_dataset": 3,
+  "fetched_at_utc": "2026-09-20T10:50:27Z",
+  "sources": [
+    {
+      "alias": "simpleqa",
+      "category": "G1",
+      "repo": "basicv8vc/SimpleQA",
+      "config": "default",
+      "split": "test",
+      "license": "MIT",
+      "note": "短事实问答；显式区分 correct/incorrect/not attempted",
+      "fetched": 3,
+      "columns": [
+        "answer",
+        "metadata",
+        "problem"
+      ],
+      "path": "G1_knowledge_qa/raw/simpleqa.jsonl"
+    },
+    {
+      "alias": "chinese_simpleqa",
+      "category": "G1",
+      "repo": "OpenStellarTeam/Chinese-SimpleQA",
+      "config": "default",
+      "split": "train",
+      "license": "MIT",
+      "note": "中文短事实问答，6 大类 99 子类",
+      "fetched": 3,
+      "columns": [
+        "answer",
+        "id",
+        "primary_category",
+        "question",
+        "secondary_category",
+        "urls"
+      ],
+      "path": "G1_knowledge_qa/raw/chinese_simpleqa.jsonl"
+    },
+    {
+      "alias": "frames",
+      "category": "G1",
+      "repo": "google/frames-benchmark",
+      "config": "default",
+      "split": "test",
+      "license": "Apache-2.0",
+      "note": "多跳事实推理，每题需综合 2-15 篇 Wikipedia",
+      "fetched": 3,
+      "columns": [
+        "Answer",
+        "Prompt",
+        "Unnamed: 0",
+        "reasoning_types",
+        "wiki_links",
+        "wikipedia_link_1",
+        "wikipedia_link_10",
+        "wikipedia_link_11+",
+        "wikipedia_link_2",
+        "wikipedia_link_3",
+        "wikipedia_link_4",
+        "wikipedia_link_5",
+        "wikipedia_link_6",
+        "wikipedia_link_7",
+        "wikipedia_link_8",
+        "wikipedia_link_9"
+      ],
+      "path": "G1_knowledge_qa/raw/frames.jsonl"
+    },
+    {
+      "alias": "beir_scifact_queries",
+      "category": "G2",
+      "repo": "BeIR/scifact",
+      "config": "queries",
+      "split": "queries",
+      "license": "CC-BY-SA-4.0(见说明)",
+      "note": "科学论断检索的 query 侧",
+      "fetched": 3,
+      "columns": [
+        "_id",
+        "text",
+        "title"
+      ],
+      "path": "G2_retrieval/raw/beir_scifact_queries.jsonl"
+    },
+    {
+      "alias": "beir_scifact_corpus",
+      "category": "G2",
+      "repo": "BeIR/scifact",
+      "config": "corpus",
+      "split": "corpus",
+      "license": "CC-BY-SA-4.0(见说明)",
+      "note": "语料侧；全量 5183 篇，此处仅抽样示意",
+      "fetched": 3,
+      "columns": [
+        "_id",
+        "text",
+        "title"
+      ],
+      "path": "G2_retrieval/raw/beir_scifact_corpus.jsonl"
+    },
+    {
+      "alias": "beir_scifact_qrels",
+      "category": "G2",
+      "repo": "BeIR/scifact-qrels",
+      "config": "default",
+      "split": "test",
+      "license": "CC-BY-SA-4.0(见说明)",
+      "note": "query↔doc 相关性标注",
+      "fetched": 3,
+      "columns": [
+        "corpus-id",
+        "query-id",
+        "score"
+      ],
+      "path": "G2_retrieval/raw/beir_scifact_qrels.jsonl"
+    },
+    {
+      "alias": "longbench_v2",
+      "category": "G3",
+      "repo": "zai-org/LongBench-v2",
+      "config": "default",
+      "split": "train",
+      "license": "Apache-2.0",
+      "note": "长上下文理解，含中英文，带 difficulty 标注",
+      "fetched": 3,
+      "columns": [
+        "_id",
+        "answer",
+        "choice_A",
+        "choice_B",
+        "choice_C",
+        "choice_D",
+        "context",
+        "difficulty",
+        "domain",
+        "length",
+        "question",
+        "sub_domain"
+      ],
+      "path": "G3_comprehension/raw/longbench_v2.jsonl"
+    },
+    {
+      "alias": "ruler_niah",
+      "category": "G3",
+      "repo": "simonjegou/ruler",
+      "config": "16384",
+      "split": "test",
+      "license": "Apache-2.0(未逐一核实)",
+      "note": "合成长上下文 needle-in-haystack；完全合成，结构上不可能被污染",
+      "fetched": 3,
+      "columns": [
+        "answer",
+        "answer_prefix",
+        "context",
+        "max_new_tokens",
+        "question",
+        "task"
+      ],
+      "path": "G3_comprehension/raw/ruler_niah.jsonl"
+    },
+    {
+      "alias": "ifeval",
+      "category": "G4",
+      "repo": "google/IFEval",
+      "config": "default",
+      "split": "train",
+      "license": "Apache-2.0",
+      "note": "可程序校验的指令约束（25 类 instruction_id）",
+      "fetched": 3,
+      "columns": [
+        "instruction_id_list",
+        "key",
+        "kwargs",
+        "prompt"
+      ],
+      "path": "G4_writing/raw/ifeval.jsonl"
+    },
+    {
+      "alias": "dabstep",
+      "category": "G6",
+      "repo": "adyen/DABstep",
+      "config": "tasks",
+      "split": "dev",
+      "license": "CC-BY-4.0",
+      "note": "多步数据分析，hard 档顶尖系统仅 14-16%",
+      "fetched": 3,
+      "columns": [
+        "answer",
+        "guidelines",
+        "level",
+        "question",
+        "task_id"
+      ],
+      "path": "G6_data_analysis/raw/dabstep.jsonl"
+    },
+    {
+      "alias": "bird_minidev",
+      "category": "G7",
+      "repo": "birdsql/bird_mini_dev",
+      "config": "default",
+      "split": "mini_dev_mysql",
+      "license": "CC-BY-SA-4.0",
+      "note": "文本转 SQL，Mini-Dev 780 条",
+      "fetched": 3,
+      "columns": [
+        "SQL",
+        "db_id",
+        "difficulty",
+        "evidence",
+        "question",
+        "question_id"
+      ],
+      "path": "G7_code_sql/raw/bird_minidev.jsonl"
+    },
+    {
+      "alias": "bigcodebench",
+      "category": "G7",
+      "repo": "bigcode/bigcodebench",
+      "config": "default",
+      "split": "v0.1.0_hf",
+      "license": "Apache-2.0",
+      "note": "函数级代码生成 + 官方单测",
+      "fetched": 3,
+      "columns": [
+        "canonical_solution",
+        "code_prompt",
+        "complete_prompt",
+        "doc_struct",
+        "entry_point",
+        "instruct_prompt",
+        "libs",
+        "task_id",
+        "test"
+      ],
+      "path": "G7_code_sql/raw/bigcodebench.jsonl"
+    },
+    {
+      "alias": "rcaeval",
+      "category": "G8",
+      "repo": "phamquiluan/RCAEval",
+      "config": "cases",
+      "split": "train",
+      "license": "MIT(未逐一核实)",
+      "note": "微服务故障注入案例；v0.2 文档推荐的 G8 自建起点",
+      "fetched": 3,
+      "columns": [
+        "case",
+        "dataset",
+        "duration_minutes",
+        "fault",
+        "fault_description",
+        "faulty_timesteps",
+        "has_logs",
+        "has_root_cause_file",
+        "has_traces",
+        "inject_time",
+        "n_logs",
+        "n_metrics",
+        "n_timesteps",
+        "n_traces",
+        "normal_timesteps",
+        "repetition",
+        "root_cause_service",
+        "suite",
+        "system",
+        "system_name",
+        "time_end",
+        "time_start"
+      ],
+      "path": "G8_diagnosis/raw/rcaeval.jsonl"
+    },
+    {
+      "alias": "toolace",
+      "category": "G9",
+      "repo": "Team-ACE/ToolACE",
+      "config": "default",
+      "split": "train",
+      "license": "Apache-2.0(未逐一核实)",
+      "note": "工具调用对话，含 system 里的工具定义",
+      "fetched": 3,
+      "columns": [
+        "conversations",
+        "system"
+      ],
+      "path": "G9_tool_ops/raw/toolace.jsonl"
+    },
+    {
+      "alias": "apigen_mt",
+      "category": "G9",
+      "repo": "Salesforce/APIGen-MT-5k",
+      "config": "dataset",
+      "split": "train",
+      "license": "CC-BY-4.0(未逐一核实)",
+      "note": "多轮工具调用轨迹 + 工具 schema",
+      "fetched": 3,
+      "columns": [
+        "conversations",
+        "system",
+        "tools"
+      ],
+      "path": "G9_tool_ops/raw/apigen_mt.jsonl"
+    },
+    {
+      "alias": "helpsteer3",
+      "category": "G10",
+      "repo": "nvidia/HelpSteer3",
+      "config": "preference",
+      "split": "validation",
+      "license": "CC-BY-4.0",
+      "note": "人类偏好对，用于 pairwise 与 Judge 校准",
+      "fetched": 3,
+      "columns": [
+        "context",
+        "domain",
+        "individual_preference",
+        "language",
+        "overall_preference",
+        "response1",
+        "response2"
+      ],
+      "path": "G10_communication/raw/helpsteer3.jsonl"
+    },
+    {
+      "alias": "mt_bench",
+      "category": "G10",
+      "repo": "HuggingFaceH4/mt_bench_prompts",
+      "config": "default",
+      "split": "train",
+      "license": "Apache-2.0(未逐一核实)",
+      "note": "多轮开放式对话，带部分参考答案",
+      "fetched": 3,
+      "columns": [
+        "category",
+        "prompt",
+        "prompt_id",
+        "reference"
+      ],
+      "path": "G10_communication/raw/mt_bench.jsonl"
+    },
+    {
+      "alias": "jailbreakbench",
+      "category": "S",
+      "repo": "JailbreakBench/JBB-Behaviors",
+      "config": "behaviors",
+      "split": "harmful",
+      "license": "MIT",
+      "note": "越狱行为集，100 条 harmful + 100 条 benign 对照",
+      "fetched": 3,
+      "columns": [
+        "Behavior",
+        "Category",
+        "Goal",
+        "Index",
+        "Source",
+        "Target"
+      ],
+      "path": "S_safety/raw/jailbreakbench.jsonl"
+    },
+    {
+      "alias": "orbench_hard",
+      "category": "S",
+      "repo": "bench-llm/or-bench",
+      "config": "or-bench-hard-1k",
+      "split": "train",
+      "license": "CC-BY-4.0",
+      "note": "过度拒答（over-refusal）反向指标",
+      "fetched": 3,
+      "columns": [
+        "category",
+        "prompt"
+      ],
+      "path": "S_safety/raw/orbench_hard.jsonl"
+    },
+    {
+      "alias": "airbench_2024",
+      "category": "S",
+      "repo": "stanford-crfm/air-bench-2024",
+      "config": "default",
+      "split": "test",
+      "license": "CC-BY-4.0",
+      "note": "taxonomy 出自 8 部政府法规 + 16 家公司政策",
+      "fetched": 3,
+      "columns": [
+        "cate-idx",
+        "l2-name",
+        "l3-name",
+        "l4-name",
+        "prompt"
+      ],
+      "path": "S_safety/raw/airbench_2024.jsonl"
+    }
+  ]
+}

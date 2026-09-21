@@ -1,0 +1,55 @@
+{
+  "source": "adyen/DABstep@data/context",
+  "note": "内容本身不入库，只入库校验和；build_instances.py 会把这份清单挂到每条 G6 实例的 context.files 上",
+  "files": [
+    {
+      "path": "context/payments.csv",
+      "mime": "text/csv",
+      "content_ref": "blob://sha256:5fbb26210a45427d7a6560cfab3a362a08e4067f27cd03695f211a51c47ffc25",
+      "bytes": 23581339,
+      "desc": "交易明细，138236 行"
+    },
+    {
+      "path": "context/payments-readme.md",
+      "mime": "text/markdown",
+      "content_ref": "blob://sha256:8754b92d0b3127856ff72266ea482995d2a1f6a34d0a12732f7c26f527f2c4a5",
+      "bytes": 1719,
+      "desc": "字段说明"
+    },
+    {
+      "path": "context/manual.md",
+      "mime": "text/markdown",
+      "content_ref": "blob://sha256:bb7f4ca6fdc759af1f480702b3a3b12e17e9293b0d38a1dbfbbc8ffc1e572d2c",
+      "bytes": 22127,
+      "desc": "业务口径定义（欺诈率等指标怎么算）"
+    },
+    {
+      "path": "context/merchant_data.json",
+      "mime": "application/json",
+      "content_ref": "blob://sha256:f158e834de27ee8407e99d9c32da690357981d2770958fd302a9bb79ced83581",
+      "bytes": 6857,
+      "desc": "商户档案"
+    },
+    {
+      "path": "context/merchant_category_codes.csv",
+      "mime": "text/csv",
+      "content_ref": "blob://sha256:83247d79f5ddcdd180e02f184b644f4912731942a2fc58d91f2a06b911d04b41",
+      "bytes": 26611,
+      "desc": "MCC 码表"
+    },
+    {
+      "path": "context/acquirer_countries.csv",
+      "mime": "text/csv",
+      "content_ref": "blob://sha256:6744cf1962e4b5086342821e627f4557c32f06c3c58e8b0ff3b449dcc634f37f",
+      "bytes": 194,
+      "desc": "收单行国家"
+    },
+    {
+      "path": "context/fees.json",
+      "mime": "application/json",
+      "content_ref": "blob://sha256:9a833666ae9be5a8e756dd1fe076c72e7c502d64161315ffa8fee9e5bf2599dc",
+      "bytes": 531118,
+      "desc": "费率规则"
+    }
+  ]
+}

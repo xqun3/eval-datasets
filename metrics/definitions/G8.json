@@ -1,0 +1,73 @@
+{
+  "category": "G8",
+  "name": "故障诊断",
+  "primary_layer": "L2",
+  "checkers": ["fact_recall"],
+  "metrics": [
+    {
+      "id": "root_cause_top3",
+      "name": "根因命中率 Top-3",
+      "role": "primary",
+      "quadrant": "quality",
+      "direction": "higher_better",
+      "unit": "ratio",
+      "source": {"kind": "score", "checker": "fact_recall"},
+      "aggregate": "mean",
+      "instance_threshold": {"op": ">=", "value": 0.85, "code": "fact_recall.py:117"},
+      "admission_threshold": {"op": ">=", "value": 0.85},
+      "implemented": true,
+      "notes": "⚠️ 口径近似：SCHEMA §0 写的是「Top-3 命中」，实现是 fact_recall 的事实点召回率。当前把根因写成 gold.value.required 事实点，模型答案覆盖到即算命中，没有排名概念。真正的 Top-3 需要模型输出有序候选列表 + 解析排名，尚未实现"
+    },
+    {
+      "id": "hallucinated_command_rate",
+      "name": "幻觉命令率",
+      "role": "primary",
+      "quadrant": "safety",
+      "direction": "lower_better",
+      "unit": "ratio",
+      "source": {"kind": "derived", "expr": "回答里出现的命令/参数在给定环境中不存在的实例占比"},
+      "aggregate": "rate",
+      "admission_threshold": {"op": "<=", "value": 0.01},
+      "implemented": false,
+      "blocked_by": "需要命令白名单或真实 shell 环境校验；当前实例的 context 没有声明可用命令集，无从判定「不存在」",
+      "notes": "SCHEMA §0 要求 ≤1%。这是 G8 最该有、也最缺的护栏——诊断题里模型编一个不存在的 systemctl 子命令，比答不出根因危害更大"
+    },
+    {
+      "id": "required_fact_hit",
+      "name": "必答事实点命中数",
+      "role": "auxiliary",
+      "quadrant": "quality",
+      "direction": "higher_better",
+      "unit": "count",
+      "source": {"kind": "sub_metric", "checker": "fact_recall", "key": "required_hit"},
+      "aggregate": "sum",
+      "implemented": true,
+      "notes": "与 required_total 一起看，定位是「漏了哪个根因」还是「全漏」"
+    },
+    {
+      "id": "optional_fact_bonus",
+      "name": "加分事实点命中率",
+      "role": "auxiliary",
+      "quadrant": "quality",
+      "direction": "higher_better",
+      "unit": "ratio",
+      "source": {"kind": "derived", "checker": "fact_recall", "expr": "sum(optional_hit) / sum(optional_total)"},
+      "aggregate": "rate",
+      "implemented": true,
+      "notes": "optional 不计入 score，只做区分度。两个模型都拿 0.85 时，用它区分谁诊断得更深（比如是否点到了排查手段、影响面）"
+    },
+    {
+      "id": "judge_stub_ratio",
+      "name": "Fact judge 弃权率",
+      "role": "guard",
+      "quadrant": "reliability",
+      "direction": "lower_better",
+      "unit": "ratio",
+      "source": {"kind": "sub_metric", "checker": "fact_recall", "key": "judge_stub"},
+      "aggregate": "mean",
+      "implemented": true,
+      "notes": "default_fact_judge 永远返回 None（弃权），回落到规则匹配。故障诊断的根因表述方式多（「磁盘满」/「inode 耗尽」/「/var 分区写满」），纯字面匹配漏判率高，这个值恒为 1.0 意味着 root_cause_top3 偏低估"
+    }
+  ],
+  "notes": "G8 的两个 SCHEMA 主指标一个是近似实现、一个完全没实现。三条实例均为人工撰写（公开故障诊断集缺少可机检的结构化根因标注）"
+}
