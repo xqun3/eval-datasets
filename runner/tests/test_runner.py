@@ -433,5 +433,97 @@ class TestRescore(unittest.TestCase):
         self.assertIn("rubric_judge", self.rescore.JUDGE_CHECKERS)
 
 
+class TestRouteDecide(unittest.TestCase):
+    """加权路由决策。
+
+    最容易出错的是归一化：四个维度刻度完全不同（0~1 的分数、秒、token 个数、
+    美元），而且方向有正有反。用 min-max 归一化在只有两个模型时会退化成
+    1 和 0，「贵 3%」和「贵 300%」长得一模一样 —— 所以这里用相对比值。
+    """
+
+    def setUp(self):
+        import route_decide
+        self.rd = route_decide
+
+    def test_higher_better_keeps_magnitude(self):
+        na, nb = self.rd.norm(0.8, 1.0, "quality")
+        self.assertAlmostEqual(nb, 1.0)
+        self.assertAlmostEqual(na, 0.8)
+
+    def test_lower_better_is_inverted(self):
+        # 延迟 2s vs 10s：快的拿 1.0，慢的拿 0.2
+        na, nb = self.rd.norm(2.0, 10.0, "latency")
+        self.assertAlmostEqual(na, 1.0)
+        self.assertAlmostEqual(nb, 0.2)
+
+    def test_min_max_degeneracy_is_avoided(self):
+        """差 3% 和差 300% 必须给出不同的归一化结果。"""
+        close = self.rd.norm(1.00, 1.03, "cost")
+        far = self.rd.norm(1.00, 4.00, "cost")
+        self.assertGreater(close[1], 0.9)
+        self.assertLess(far[1], 0.3)
+
+    def test_cost_uses_both_token_directions(self):
+        recs = [{"category": "GX", "status": "ok",
+                 "result": {"score": 1.0,
+                            "cost": {"prompt_tokens": 1_000_000,
+                                     "completion_tokens": 2_000_000,
+                                     "latency_s": 1.0}}}]
+        got = self.rd.per_category(recs, (3.0, 5.0))["GX"]
+        # 1M * $3 + 2M * $5 = 3 + 10
+        self.assertAlmostEqual(got["cost"], 13.0)
+
+    def test_model_error_is_missing_not_zero(self):
+        """请求失败不能当 0 分算进质量均值，否则等于拿对方的故障加分。"""
+        recs = [{"category": "GX", "status": "ok",
+                 "result": {"score": 1.0, "cost": {}}},
+                {"category": "GX", "status": "model_error",
+                 "result": {"score": None, "cost": {}}}]
+        got = self.rd.per_category(recs, (0.0, 0.0))["GX"]
+        self.assertAlmostEqual(got["quality"], 1.0)
+        self.assertEqual(got["missing"], 1)
+
+    def test_flip_point_solves_the_weight_that_changes_the_winner(self):
+        # A 质量差、成本低；B 质量好、成本高
+        dims = {"quality": {"na": 0.8, "nb": 1.0},
+                "latency": {"na": 1.0, "nb": 1.0},
+                "cost": {"na": 1.0, "nb": 0.0},
+                "tokens_in": {"na": 1.0, "nb": 1.0},
+                "tokens_out": {"na": 1.0, "nb": 1.0}}
+        w = {"quality": 0.5, "latency": 0.0, "cost": 0.5,
+             "tokens_in": 0.0, "tokens_out": 0.0}
+        fp = self.rd.flip_point(dims, w, "cost")
+        self.assertIsNotNone(fp)
+        # 在翻转点上两边综合分应当相等
+        rest = sum(v for k, v in w.items() if k != "cost")
+        sa = (sum(w[k] * dims[k]["na"] for k in w if k != "cost")
+              + fp * dims["cost"]["na"]) / (rest + fp)
+        sb = (sum(w[k] * dims[k]["nb"] for k in w if k != "cost")
+              + fp * dims["cost"]["nb"]) / (rest + fp)
+        self.assertAlmostEqual(sa, sb, places=9)
+
+    def test_gate_excludes_a_model_that_failed_admission(self):
+        cat = {"GX": {"n": 1, "missing": 0, "quality": 1.0, "latency": 1.0,
+                      "tokens_in": 1, "tokens_out": 1, "cost": 1.0}}
+        # 质量只差一点点（0.9 vs 1.0）但便宜一万倍 —— 这才是门禁要防的场景
+        cheap = {"GX": dict(cat["GX"], quality=0.9, cost=0.0001)}
+        w = dict(self.rd.DEFAULT_WEIGHTS)
+        # 不开门禁：成本优势足以盖过质量劣势，A 胜出
+        off = self.rd.decide(cheap, cat, w, False,
+                             {"GX": "FAIL"}, {"GX": "PASS"}, {})[0]
+        self.assertEqual(off["winner"], "A")
+        # 开门禁：准入 FAIL 直接出局，不许「便宜且快但答不对」胜出
+        on = self.rd.decide(cheap, cat, w, True,
+                            {"GX": "FAIL"}, {"GX": "PASS"}, {})[0]
+        self.assertEqual(on["winner"], "B")
+
+    def test_unusable_category_is_skipped_entirely(self):
+        cat = {"G9": {"n": 1, "missing": 0, "quality": 0.0, "latency": 1.0,
+                      "tokens_in": 1, "tokens_out": 1, "cost": 1.0}}
+        rows = self.rd.decide(cat, cat, dict(self.rd.DEFAULT_WEIGHTS), False,
+                              {"G9": "FAIL"}, {"G9": "FAIL"}, {"G9": "题目不可答"})
+        self.assertIn("skip", rows[0])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
