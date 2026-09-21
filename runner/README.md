@@ -41,12 +41,75 @@ python3 runner/compare.py --a runs/model_a.jsonl --b runs/model_b.jsonl
 | `google` | `:generateContent` | `x-goog-api-key`，默认读 `GOOGLE_API_KEY` |
 | `anthropic` | `/v1/messages` | `x-api-key`，默认读 `ANTHROPIC_API_KEY` |
 | `openai` | `/chat/completions` | `Bearer`，默认读 `OPENAI_API_KEY`（也覆盖 vLLM / LiteLLM / 各家网关） |
+| `vertex` | Vertex `:generateContent` | ADC，见下 |
+| `vertex_anthropic` | Vertex `:rawPredict`（Anthropic 原生 body） | ADC，见下 |
 | `scripted` | 无 | `scripted:<json文件>`，离线自检用 |
 
 走网关代理其它厂商时用 `provider_name=` 如实标注厂商身份，否则
 「judge 不得与被测模型同源」这条红线会被绕过。
 
 ---
+
+## Vertex AI：实测记录
+
+本环境没装 `google-auth`、`gcloud` 也不在 PATH，所以
+[`gcp_auth.py`](gcp_auth.py) 只用标准库拿 token，三级降级：
+ADC 的 refresh_token 换 access_token → metadata server → gcloud 二进制。
+
+```bash
+python3 runner/run_benchmark.py \
+    --model vertex:gemini-3.8-flash \
+    --project cloud-llm-preview1 --location global \
+    --out runs/model_a.jsonl
+
+python3 runner/run_benchmark.py \
+    --model vertex_anthropic:claude-opus-4-8 \
+    --project cloud-llm-preview1 --location global \
+    --out runs/model_b.jsonl
+```
+
+四个踩过的坑：
+
+1. **`global` 端点没有区域前缀** —— `https://aiplatform.googleapis.com/...`，
+   区域端点才是 `https://us-central1-aiplatform.googleapis.com/...`。
+2. **本地 ADC 必须带 `x-goog-user-project` 头**，否则 403
+   （`requires a quota project`）。
+3. **Claude 走 `:rawPredict` 不是 `:predict`**，body 是 Anthropic 原生格式加
+   `anthropic_version`，且 **model 不能出现在 body 里**（它在 URL 里），带上 400。
+4. **`GET /publishers/{pub}/models` 是全局目录**，列得出来 ≠ 这个项目这个区域调得通。
+   只能逐个 POST 探测。
+
+project = `cloud-llm-preview1` 下的实测可用性：
+
+| 模型 | global | us-central1 / us-east5 / europe-west1 |
+|---|---|---|
+| `gemini-3.8-flash` | ✅ | ❌ 404 |
+| `gemini-3.1-pro-preview` | ✅ | ❌ 404 |
+| `claude-opus-4-8` | ✅ | ✅ |
+| `claude-sonnet-5` / `claude-opus-4-7/4-6/4-5` | ✅ | ✅ |
+| `claude-opus-5` | ❌ 404 | ❌ 404 |
+
+`claude-opus-5` 是唯一调不通的 —— 项目没 allowlist，跟区域和协议无关。
+Gemini 侧只有 `gemini-3.1-pro-preview`，没有不带 `-preview` 的版本。
+
+### 已知偏差：Claude 侧的 temperature 摘不掉也传不了
+
+`claude-opus-4-8` 拒收 `temperature`：
+
+```
+HTTP 400 invalid_request_error: `temperature` is deprecated for this model.
+```
+
+客户端探到这条错会自动摘掉参数重试一次（只有这一条错会触发，别的 400 照常抛），
+并把 `temperature` 记进 `model.dropped_params`，进而写进每条记录的
+`sampling_dropped` 字段、汇总行也会打印警告。
+
+**这意味着 Claude 跑在模型默认采样上，而 Gemini 跑在 `temperature=0`。**
+两侧采样设置不对等，解释分差时必须把这条算进去 —— 尤其是 L3 rubric 类
+门类，默认采样的方差会直接反映到分数上。
+
+---
+
 
 ## 离线自检
 

@@ -79,6 +79,9 @@ class BaseModel(object):
         self.p_rate = usd_per_1k_prompt
         self.c_rate = usd_per_1k_completion
         self.usage = Usage()
+        # 被服务端拒收、只能摘掉的采样参数（如新版 Claude 的 temperature）。
+        # 非空 = 这个模型没跑在我们指定的采样设置上，对比时要当成已知偏差。
+        self.dropped_params: List[str] = []
 
     @property
     def tag(self) -> str:
@@ -383,24 +386,44 @@ class VertexGeminiModel(_VertexBase):
 class VertexAnthropicModel(_VertexBase):
     provider = "anthropic"
 
+    # 新一代 Claude（opus-4-8 起）不再接受 temperature，传了直接 400
+    # invalid_request_error: "`temperature` is deprecated for this model."
+    # 探到这条错误就摘掉参数重试，并把事实记下来 —— 这意味着它跑在模型
+    # 默认采样上，跟 temperature=0 的 Gemini **采样设置不对等**，报表里
+    # 必须能看见，不能悄悄吞掉。
+    _TEMP_DEPRECATED = "`temperature` is deprecated"
+
     def __init__(self, model: str, anthropic_version: str = "vertex-2023-10-16",
                  **kw):
         _VertexBase.__init__(self, model, **kw)
         self.anthropic_version = anthropic_version
+        self.send_temperature = True
 
-    def generate(self, system: str, user: str) -> Dict[str, Any]:
+    def _payload(self, system: str, user: str) -> Dict[str, Any]:
         # 注意 model 不进 body —— 它已经在 URL 里了。带上会 400。
         payload: Dict[str, Any] = {
             "anthropic_version": self.anthropic_version,
             "max_tokens": self.max_tokens,
-            "temperature": self.temperature,
             "messages": [{"role": "user", "content": user}],
         }
+        if self.send_temperature:
+            payload["temperature"] = self.temperature
         if system:
             payload["system"] = system
+        return payload
 
-        got = self._post(self._endpoint("anthropic", "rawPredict"),
-                         self._headers(), payload)
+    def generate(self, system: str, user: str) -> Dict[str, Any]:
+        url = self._endpoint("anthropic", "rawPredict")
+        try:
+            got = self._post(url, self._headers(), self._payload(system, user))
+        except ModelError as exc:
+            if not (self.send_temperature and self._TEMP_DEPRECATED in str(exc)):
+                raise
+            self.send_temperature = False
+            self.dropped_params.append("temperature")
+            self.usage.errors -= 1   # 这次 400 是探测，不算模型故障
+            got = self._post(url, self._headers(), self._payload(system, user))
+
         body = got["body"]
         text = "".join(b.get("text", "") for b in (body.get("content") or [])
                        if b.get("type") == "text")

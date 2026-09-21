@@ -240,6 +240,58 @@ class TestClients(unittest.TestCase):
         self.assertGreater(m.usage.prompt_tokens, 0)
 
 
+class TestAnthropicTemperatureDeprecation(unittest.TestCase):
+    """新版 Claude（opus-4-8）拒收 temperature，客户端要能摘参重试并留痕。"""
+
+    def _model(self, err=None):
+        """伪服务端：只要 payload 里带 temperature 就 400，跟真 Vertex 一致。"""
+        m = clients.VertexAnthropicModel("claude-opus-4-8",
+                                         project="p", location="global")
+        m._token = lambda: "tok"          # 不碰真 ADC
+        self.seen = []
+        boom = err or ("HTTP 400 {\"error\":{\"message\":"
+                       "\"`temperature` is deprecated for this model.\"}}")
+
+        def fake_post(url, headers, payload):
+            self.seen.append(payload)
+            if "temperature" in payload or err:
+                m.usage.errors += 1       # 真 _post 抛之前也会记一笔
+                raise clients.ModelError(boom)
+            return {"body": {"content": [{"type": "text", "text": "ok"}],
+                             "usage": {"input_tokens": 3, "output_tokens": 1},
+                             "stop_reason": "end_turn"},
+                    "latency_s": 0.01}
+
+        m._post = fake_post
+        return m
+
+    def test_retries_without_temperature_and_records_it(self):
+        m = self._model()
+        out = m.generate("", "hi")
+        self.assertEqual(out["text"], "ok")
+        self.assertIn("temperature", self.seen[0])      # 第一次试着传了
+        self.assertNotIn("temperature", self.seen[1])   # 第二次摘掉了
+        self.assertEqual(m.dropped_params, ["temperature"])
+        # 探测用的那次 400 不该算成模型故障
+        self.assertEqual(m.usage.errors, 0)
+
+    def test_does_not_retry_forever(self):
+        """摘过一次之后就不再传，后续请求只发一次。"""
+        m = self._model()
+        m.generate("", "hi")
+        self.seen.clear()
+        m.generate("", "hi again")
+        self.assertEqual(len(self.seen), 1)
+        self.assertNotIn("temperature", self.seen[0])
+
+    def test_other_400_still_raises(self):
+        """别的 400 不能被这条自适应顺手吞掉。"""
+        m = self._model(err="HTTP 400 {\"error\":{\"message\":\"bad model\"}}")
+        with self.assertRaises(clients.ModelError):
+            m.generate("", "hi")
+        self.assertEqual(m.dropped_params, [])
+
+
 class TestCompareStats(unittest.TestCase):
     def setUp(self):
         sys.path.insert(0, RUNNER)

@@ -118,8 +118,8 @@ def run_one(model: clients.BaseModel, raw: Dict[str, Any],
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True,
-                    help="provider:model，例如 google:gemini-3.8-flash 或 "
-                         "anthropic:claude-opus-5")
+                    help="provider:model，例如 vertex:gemini-3.8-flash 或 "
+                         "vertex_anthropic:claude-opus-4-8")
     ap.add_argument("--out", required=True)
     ap.add_argument("--only", nargs="*", help="只跑指定门类，例如 --only G1 G7")
     ap.add_argument("--limit", type=int, help="只跑前 N 条（冒烟用）")
@@ -192,6 +192,8 @@ def main() -> int:
             rec = run_one(model, raw, env, args.budget)
             if judge_caveat:
                 rec["judge_caveat"] = judge_caveat
+            if model.dropped_params:
+                rec["sampling_dropped"] = list(model.dropped_params)
             counts[rec["status"]] = counts.get(rec["status"], 0) + 1
             out.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
             out.flush()          # 中途挂掉也保住已跑的部分
@@ -212,6 +214,10 @@ def main() -> int:
              u["usd"], u["wall_s"]))
     if u["usd"] == 0.0 and u["tokens"] > 0:
         print("  注意：未传 --price-in/--price-out，成本只有 token 数没有金额")
+    if model.dropped_params:
+        print("  警告：%s 拒收参数 %s，本次跑在模型默认采样上；"
+              "与对照组的采样设置不对等，属已知偏差"
+              % (model.tag, ", ".join(sorted(set(model.dropped_params)))))
     print("\n下一步: python3 metrics/aggregate.py --run %s" % args.out)
     return 0
 
