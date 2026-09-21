@@ -48,7 +48,19 @@ QUADRANT_LABEL = {
 # 凡 implemented=true 且 kind=derived 的指标，必须在本表里有实现，否则 self-test 失败。
 
 def _sub(rec, key, default=0.0):
-    return (rec["result"].get("sub_metrics") or {}).get(key, default)
+    """取 sub_metric。列表型的取长度。
+
+    有几个 sub_metric 存的是**条目列表**而不是计数：
+    format_compliance.unsupported（不支持的约束条目）、
+    must_not_guard.unresolved_rules（没判定的规则）。
+    直接 sum() 会 TypeError: int + list —— 这个 bug 一直活着，是因为
+    aggregate.py 此前只在构造数据上跑过，那里它们被写成了整数。
+    第一次拿真实 run 跑就崩了。
+    """
+    v = (rec["result"].get("sub_metrics") or {}).get(key, default)
+    if isinstance(v, (list, tuple, set, dict)):
+        return len(v)
+    return v
 
 
 def _ratio(num: float, den: float) -> Optional[float]:
