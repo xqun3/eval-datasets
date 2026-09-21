@@ -17,7 +17,10 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 METRICS = os.path.dirname(HERE)
+ROOT = os.path.dirname(METRICS)
 sys.path.insert(0, METRICS)
+# 判分器本体在 adapter_check/ 下；端到端断言（judge 故障 -> 缺测）要直接调它
+sys.path.insert(0, os.path.join(ROOT, "adapter_check"))
 
 import aggregate                       # noqa: E402
 import registry                        # noqa: E402
@@ -214,12 +217,55 @@ class TestJudgeRunner(unittest.TestCase):
         out = r.rubric("p", "a", dims, [])
         self.assertEqual(out, {"完整性": 5.0, "结构": 1.0})
 
-    def test_rubric_parse_failure_is_visible(self):
+    def test_rubric_parse_failure_raises(self):
+        """解析失败必须抛错。
+
+        以前这里返回 {}，上层 rubric_judge 会把每个维度取成默认 1.0，
+        于是 judge 的故障被记成「模型得 0 分」。
+        """
         c = self.FakeClient(["这不是 JSON"])
         r = jrunner.JudgeRunner(c)
-        out = r.rubric("p", "a", [{"name": "完整性", "weight": 1.0}], [])
-        self.assertEqual(out, {})
+        with self.assertRaises(jclient.JudgeError):
+            r.rubric("p", "a", [{"name": "完整性", "weight": 1.0}], [])
         self.assertEqual(r.stats()["parse_failures"], 1)
+
+    def test_broken_judge_is_not_a_zero_score(self):
+        """端到端：judge 坏掉 -> 缺测（score=None），不是 0 分。
+
+        这条是那次「截断的 judge 把一封写得不错的邮件判成 0.000」的回归。
+        """
+        import adapter.checkers.rubric_judge as rj   # noqa: PLC0415
+
+        class _Inst(object):
+            prompt = "写封延期邮件"
+            gold = {"value": {"dims": [{"name": "共情", "weight": 0.5},
+                                       {"name": "结构", "weight": 0.5}],
+                              "must_cover": ["致歉"]}}
+
+        def boom(*_a, **_kw):
+            raise jclient.JudgeError("judge 输出被中断（finishReason=MAX_TOKENS）")
+
+        out = rj.rubric_judge(_Inst(), {"text": "非常抱歉，交付需要延期……"},
+                              env={"judge": boom})
+        self.assertIsNone(out["score"], "judge 故障绝不能变成 0 分")
+        self.assertIsNone(out["passed"])
+        self.assertTrue(out["sub_metrics"]["judge_failed"])
+        self.assertIn("MAX_TOKENS", out["detail"]["judge_error"])
+
+    def test_partial_dims_is_also_unmeasured(self):
+        """judge 只给了一半维度 -> 另一半以前会被默默填成 1 分，同样是造假。"""
+        import adapter.checkers.rubric_judge as rj   # noqa: PLC0415
+
+        class _Inst(object):
+            prompt = "p"
+            gold = {"value": {"dims": [{"name": "共情", "weight": 0.5},
+                                       {"name": "结构", "weight": 0.5}],
+                              "must_cover": []}}
+
+        out = rj.rubric_judge(_Inst(), {"text": "答案"},
+                              env={"judge": lambda *a, **k: {"共情": 5.0}})
+        self.assertIsNone(out["score"])
+        self.assertEqual(out["detail"]["missing_dims"], ["结构"])
 
     def test_strict_mode_raises(self):
         c = self.FakeClient(["garbage"])

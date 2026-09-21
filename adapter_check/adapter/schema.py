@@ -345,21 +345,29 @@ def validate_instance(d: Dict[str, Any]) -> List[str]:
 # CheckerResult
 # --------------------------------------------------------------------------
 def new_checker_result(
-    score: float = 0.0,
-    passed: bool = False,
+    score: Optional[float] = 0.0,
+    passed: Optional[bool] = False,
     layer: str = "L1",
     sub_metrics: Optional[Dict[str, Any]] = None,
     violations: Optional[List[str]] = None,
     detail: Optional[Dict[str, Any]] = None,
     cost: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Build a CheckerResult exactly as specified in SCHEMA_v0.1.md §2."""
+    """Build a CheckerResult exactly as specified in SCHEMA_v0.1.md §2.
+
+    ``score=None`` / ``passed=None`` mean **not measured** (e.g. the LLM judge
+    was unreachable or returned garbage). That is deliberately *not* the same
+    as scoring 0.0: a broken judge must never be recorded as a model failure,
+    or a healthy model gets thrown out of a category on our own outage.
+    Downstream aggregation drops None instead of averaging it in.
+    """
     if layer not in LAYERS:
         raise SchemaError("layer %r not in %s" % (layer, list(LAYERS)))
-    score = float(max(0.0, min(1.0, score)))
+    if score is not None:
+        score = float(max(0.0, min(1.0, score)))
     return {
         "score": score,
-        "passed": bool(passed),
+        "passed": None if passed is None else bool(passed),
         "layer": layer,
         "sub_metrics": dict(sub_metrics or {}),
         "violations": list(violations or []),
@@ -383,10 +391,15 @@ def validate_checker_result(r: Any) -> List[str]:
         errs.append("CheckerResult unknown key(s): %s" % sorted(extra))
     if errs:
         return errs
-    if not isinstance(r["score"], float) or not (0.0 <= r["score"] <= 1.0):
-        errs.append("score must be a float in [0,1]")
-    if not isinstance(r["passed"], bool):
-        errs.append("passed must be bool")
+    # None = 未测量（judge 不可用等），与 0 分严格区分。
+    if r["score"] is not None:
+        if not isinstance(r["score"], float) or not (0.0 <= r["score"] <= 1.0):
+            errs.append("score must be a float in [0,1] or None (not measured)")
+    if r["passed"] is not None and not isinstance(r["passed"], bool):
+        errs.append("passed must be bool or None (not measured)")
+    # 只缺一半说明调用方漏了，不是合法的缺测状态
+    if (r["score"] is None) != (r["passed"] is None):
+        errs.append("score and passed must both be None when not measured")
     if r["layer"] not in LAYERS:
         errs.append("layer must be L1/L2/L3")
     for k in ("sub_metrics", "detail", "cost"):

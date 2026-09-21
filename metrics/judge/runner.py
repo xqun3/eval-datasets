@@ -77,13 +77,14 @@ class JudgeRunner(object):
         data = parse_json(raw)
         if not data or "scores" not in data:
             self.parse_failures += 1
-            if self.strict:
-                raise _client.JudgeError("judge 输出无法解析为 JSON: %r" % raw[:200])
-            # 解析失败时给每个维度 1 分是错的（凭空判模型不及格），
-            # 给 3 分也是错的（凭空送分）。这里返回空 dict ——
-            # rubric_judge 会按 raw.get(name, 1.0) 取到 1.0，所以必须让上层知道。
-            # 通过 stats() 暴露 parse_failures，报表需据此标注本轮不可信。
-            return {}
+            # 一律抛错。以前这里返回 {}，上层 rubric_judge 会把每个维度
+            # 取成默认 1.0，于是「judge 没说话」变成了「模型得 0 分」——
+            # 判分系统的故障被记成了被测模型的失败。抛出去，让 rubric_judge
+            # 记成缺测（score=None）。strict=False 仍然不会让整轮挂掉，
+            # 因为 rubric_judge 会接住这个异常。
+            raise _client.JudgeError(
+                "judge 输出无法解析为含 scores 的 JSON（长度 %d）: %r"
+                % (len(raw or ""), (raw or "")[:200]))
         out: Dict[str, float] = {}
         for d in dims or []:
             name = d.get("name")

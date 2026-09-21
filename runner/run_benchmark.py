@@ -108,7 +108,15 @@ def run_one(model: clients.BaseModel, raw: Dict[str, Any],
         1.0 if parsed["parse"]["how"] in ("raw", "json", "fenced", "answer_line")
         else 0.0)
 
-    rec["status"] = "ok" if parsed["parse"]["ok"] else "parse_failed"
+    # judge 坏掉 != 模型答得差。判分器报缺测时单独记一个状态，
+    # 否则它在报表里长得跟「模型拿了 0 分」一模一样。
+    if result.get("sub_metrics", {}).get("judge_failed"):
+        rec["status"] = "judge_failed"
+        rec["error"] = result.get("detail", {}).get("judge_error")
+    elif parsed["parse"]["ok"]:
+        rec["status"] = "ok"
+    else:
+        rec["status"] = "parse_failed"
     rec["raw_text"] = gen["text"]
     rec["finish_reason"] = gen.get("finish_reason")
     rec["result"] = result
@@ -182,7 +190,7 @@ def main() -> int:
                 print("!" * 78)
 
     os.makedirs(os.path.dirname(os.path.abspath(args.out)) or ".", exist_ok=True)
-    counts = {"ok": 0, "parse_failed": 0, "model_error": 0}
+    counts = {"ok": 0, "parse_failed": 0, "model_error": 0, "judge_failed": 0}
     t0 = time.time()
 
     with open(args.out, "w", encoding="utf-8") as out:
@@ -207,8 +215,9 @@ def main() -> int:
 
     u = model.usage.to_dict()
     print("\n%s  用时 %.1fs" % (model.tag, time.time() - t0))
-    print("  正常 %d / 契约未遵循 %d / 模型无产出 %d"
-          % (counts["ok"], counts["parse_failed"], counts["model_error"]))
+    print("  正常 %d / 契约未遵循 %d / 模型无产出 %d / 判分器故障 %d"
+          % (counts["ok"], counts["parse_failed"], counts["model_error"],
+             counts["judge_failed"]))
     print("  tokens %d（in %d / out %d）  usd %.4f  模型总延迟 %.1fs"
           % (u["tokens"], u["prompt_tokens"], u["completion_tokens"],
              u["usd"], u["wall_s"]))
@@ -218,6 +227,16 @@ def main() -> int:
         print("  警告：%s 拒收参数 %s，本次跑在模型默认采样上；"
               "与对照组的采样设置不对等，属已知偏差"
               % (model.tag, ", ".join(sorted(set(model.dropped_params)))))
+
+    # judge 自身的健康度。这些数一旦非零，本轮 L3 分数就不是完整测量。
+    jrun = (env or {}).get("_judge_runner")
+    if jrun is not None:
+        js = jrun.stats()
+        print("  judge: 调用 %s / 解析失败 %s / 弃权 %s"
+              % (js.get("calls"), js.get("parse_failures"), js.get("abstained")))
+        if counts["judge_failed"] or js.get("parse_failures"):
+            print("  警告：有 %d 条 L3 未测到（judge 故障），这些条目 score=None "
+                  "不进均值，别把它们当成模型得了 0 分" % counts["judge_failed"])
     print("\n下一步: python3 metrics/aggregate.py --run %s" % args.out)
     return 0
 

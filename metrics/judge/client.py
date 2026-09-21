@@ -190,8 +190,12 @@ class VertexGeminiJudge(BaseClient):
 
     def __init__(self, model: str, project: Optional[str] = None,
                  location: str = "global", temperature: float = 0.0,
-                 max_tokens: int = 1024, timeout_s: float = 90.0,
+                 max_tokens: int = 8192, timeout_s: float = 90.0,
                  retries: int = 3):
+        # max_tokens 默认 8192 而不是 1024：gemini-3.x pro 是思考模型，
+        # thinking token 也算在 maxOutputTokens 里，1024 会让可见输出被
+        # 随机截断（实测同一条题重跑，输出长度在 216~407 字符间跳）。
+        # 截断点落在 JSON 中间 -> 解析失败 -> 以前会变成模型的 0 分。
         BaseClient.__init__(self)
         import sys as _sys
         _here = os.path.dirname(os.path.abspath(__file__))
@@ -254,6 +258,15 @@ class VertexGeminiJudge(BaseClient):
                 cands = body.get("candidates") or []
                 if not cands:
                     raise JudgeError("judge 无候选返回（可能被安全过滤）")
+                fr = cands[0].get("finishReason")
+                if fr and fr not in ("STOP", "FINISH_REASON_STOP"):
+                    # MAX_TOKENS 时返回的 JSON 必然是半截的。把半截文本交给
+                    # 上层解析，只会得到一个看起来像「判分完成」的错误结论。
+                    raise JudgeError(
+                        "judge 输出被中断（finishReason=%s，thinking=%s / "
+                        "output=%s tokens，上限 %s）。调大 max_tokens。"
+                        % (fr, um.get("thoughtsTokenCount"),
+                           um.get("candidatesTokenCount"), self.max_tokens))
                 parts = ((cands[0].get("content") or {}).get("parts") or [])
                 return "".join(p.get("text", "") for p in parts if "text" in p)
             except urllib.error.HTTPError as exc:

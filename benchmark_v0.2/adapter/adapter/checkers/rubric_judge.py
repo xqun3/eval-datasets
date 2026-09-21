@@ -59,7 +59,15 @@ def heuristic_judge(prompt: str, answer: str, dims: List[Dict[str, Any]],
 
 
 def rubric_judge(instance, response, env: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Weighted pointwise rubric score, normalised to [0,1] (raw 1..5 in sub)."""
+    """Weighted pointwise rubric score, normalised to [0,1] (raw 1..5 in sub).
+
+    If the judge is unavailable (raises) or hands back an incomplete set of
+    dimension scores, the result is **not measured** (score=None) rather than
+    a floor score. Defaulting a missing dimension to 1.0 silently converts our
+    own outage into "the model failed this category" -- see the truncated-judge
+    incident: a well-written answer scored 0.0 with ``stub=False``, which is
+    indistinguishable from a genuinely terrible answer.
+    """
     t0 = time.time()
     env = env or {}
     judge: Callable[..., Dict[str, float]] = env.get("judge", heuristic_judge)
@@ -70,17 +78,43 @@ def rubric_judge(instance, response, env: Optional[Dict[str, Any]] = None) -> Di
     dims: List[Dict[str, Any]] = gv["dims"]
     must_cover: List[str] = list(gv.get("must_cover") or [])
 
-    raw = judge(instance.prompt, resp.text, dims, must_cover) or {}
-    total, per_dim = 0.0, {}
-    for d in dims:
-        s = float(raw.get(d["name"], 1.0))
-        s = max(1.0, min(5.0, s))
-        per_dim[d["name"]] = s
-        total += s * float(d["weight"])
-
     a_norm = normalize_text(resp.text)
     missed = [m for m in must_cover if normalize_text(m) and normalize_text(m) not in a_norm]
     cov = 1.0 - (len(missed) / float(len(must_cover))) if must_cover else 1.0
+
+    def _unmeasured(reason: str, missing: Optional[List[str]] = None) -> Dict[str, Any]:
+        return new_checker_result(
+            score=None, passed=None, layer="L3",
+            sub_metrics={"rubric_mean_5": None,
+                         "per_dim": {},
+                         "must_cover_coverage": round(cov, 6),
+                         "stub": is_stub,
+                         "judge_failed": True},
+            violations=[],
+            detail={"missed_must_cover": missed[:10],
+                    "warning": STUB_WARNING if is_stub else None,
+                    "judge": getattr(judge, "__name__", "injected"),
+                    "judge_error": reason,
+                    "missing_dims": missing or []},
+            cost={"tokens": 0, "usd": 0.0, "wall_s": round(time.time() - t0, 4)},
+        )
+
+    # 判分器自己坏掉不该让整轮挂掉，但也绝不能记成模型的 0 分。
+    try:
+        raw = judge(instance.prompt, resp.text, dims, must_cover) or {}
+    except Exception as exc:                      # noqa: BLE001 - 任何故障都算缺测
+        return _unmeasured("judge raised %s: %s" % (type(exc).__name__, exc))
+
+    missing = [d["name"] for d in dims if raw.get(d["name"]) is None]
+    if missing:
+        return _unmeasured("judge returned no score for %d/%d dimension(s)"
+                           % (len(missing), len(dims)), missing)
+
+    total, per_dim = 0.0, {}
+    for d in dims:
+        s = max(1.0, min(5.0, float(raw[d["name"]])))
+        per_dim[d["name"]] = s
+        total += s * float(d["weight"])
 
     score01 = (total - 1.0) / 4.0
     return new_checker_result(
@@ -90,7 +124,8 @@ def rubric_judge(instance, response, env: Optional[Dict[str, Any]] = None) -> Di
         sub_metrics={"rubric_mean_5": round(total, 4),
                      "per_dim": per_dim,
                      "must_cover_coverage": round(cov, 6),
-                     "stub": is_stub},
+                     "stub": is_stub,
+                     "judge_failed": False},
         violations=[],
         detail={"missed_must_cover": missed[:10],
                 "warning": STUB_WARNING if is_stub else None,
