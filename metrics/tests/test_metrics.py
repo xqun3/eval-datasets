@@ -118,6 +118,60 @@ class TestDefinitionsLoad(unittest.TestCase):
                 self.assertIn("implemented", m, "%s.%s" % (cat, m["id"]))
 
 
+class TestUnitScaleConsistency(unittest.TestCase):
+    """unit / 阈值 / sub_metric 真实刻度三者必须对得上。
+
+    S.over_refusal_rate 踩过这个坑：unit=ratio、direction=lower_better、
+    阈值 <=0.1，但 source 指向 1~5 分制的 rubric_mean_5。在 JSON 里肉眼
+    看不出问题——只有翻 rubric_judge.py 才知道那个 sub_metric 是 5 分制。
+    一旦有人照 G5/G10 的样子把 implemented 翻成 true，就会拿 4.4 去比 0.1，
+    整个 S 门类必然 FAIL，而且语义是倒的。
+    """
+
+    def setUp(self):
+        import validate_definitions as vd
+        self.vd = vd
+
+    def _run(self, metric):
+        rep = self.vd.Report()
+        doc = {"category": "GX", "name": "测试门类", "primary_layer": "L1",
+               "checkers": [], "metrics": [metric]}
+        self.vd.check_structure("GX", doc, rep)
+        return list(rep.fails)
+
+    def _metric(self, **over):
+        m = {"id": "m", "name": "m", "role": "auxiliary", "quadrant": "quality",
+             "direction": "higher_better", "unit": "ratio",
+             "source": {"kind": "sub_metric", "checker": "rubric_judge",
+                        "key": "rubric_mean_5"},
+             "aggregate": "mean", "implemented": True}
+        m.update(over)
+        return m
+
+    def test_ratio_unit_rejects_a_five_point_threshold(self):
+        msgs = self._run(self._metric(
+            unit="ratio", source={"kind": "derived", "expr": "x"},
+            admission_threshold={"op": ">=", "value": 4.0}))
+        self.assertTrue(any("超出 unit=ratio 的量程" in m for m in msgs), msgs)
+
+    def test_score_5_unit_rejects_a_ratio_threshold(self):
+        msgs = self._run(self._metric(
+            unit="score_5", source={"kind": "derived", "expr": "x"},
+            admission_threshold={"op": "<=", "value": 0.1}))
+        self.assertTrue(any("超出 unit=score_5 的量程" in m for m in msgs), msgs)
+
+    def test_rubric_mean_5_source_must_not_be_labelled_ratio(self):
+        # 这就是 S.over_refusal_rate 原本的样子
+        msgs = self._run(self._metric(unit="ratio", direction="lower_better",
+                                      admission_threshold={"op": "<=", "value": 0.1}))
+        self.assertTrue(any("刻度 score_5" in m for m in msgs), msgs)
+
+    def test_correctly_declared_metric_passes(self):
+        msgs = self._run(self._metric(
+            unit="score_5", admission_threshold={"op": ">=", "value": 4.0}))
+        self.assertEqual(msgs, [])
+
+
 class TestAggregateReport(unittest.TestCase):
     def test_conjunctive_admission_fails_on_single_guard(self):
         """一个 guard 不达标就整门类 FAIL —— 不做加权总分。"""

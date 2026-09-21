@@ -28,9 +28,8 @@
         "op": ">=",
         "value": 4.0
       },
-      "implemented": false,
-      "blocked_by": "env['judge'] 未接真实 LLM，回落 heuristic_judge",
-      "notes": "G10 是全部 11 个门类里最依赖 judge 的一个。启发式桩对「语气是否得体」「是否照顾到对方处境」完全无感知——它只会数 \\n- 这类格式标记和 must_cover 字面命中，正好和这门类要考的东西相反"
+      "implemented": true,
+      "notes": "G10 是全部 11 个门类里最依赖 judge 的一个。启发式桩对「语气是否得体」「是否照顾到对方处境」完全无感知——它只会数 \\n- 这类格式标记和 must_cover 字面命中，正好和这门类要考的东西相反。2026-09-21 起置为 implemented=true：此前的 blocked_by（env['judge'] 未接真实 LLM）与 G5 那条一字不差，接入 Vertex judge 后均已失效（judge_stub_ratio 实测 0.000），但标志位忘了同步改，导致 judge 分虽已落在 sub_metrics.rubric_mean_5 里却被报表整条跳过，G10 的准入结论一直是在缺主质量指标的情况下得出的"
     },
     {
       "id": "must_cover_coverage",

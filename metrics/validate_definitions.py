@@ -69,6 +69,27 @@ ENUMS = {
     "primary_layer": {"L1", "L2", "L3", "L1/L2"},
 }
 
+# 有天然量程的单位。count / seconds / usd / tokens 没有上界，不检。
+UNIT_RANGE = {
+    "ratio": (0.0, 1.0),
+    "score_5": (1.0, 5.0),
+}
+
+# 判分器 sub_metrics 的真实刻度。
+# 这张表必须存在，因为光看定义文件是看不出 rubric_mean_5 是 1~5 分的 ——
+# 只有翻 rubric_judge.py 才知道。S.over_refusal_rate 就是这么把它当成
+# 0~1 的比率用了：unit=ratio、阈值 <=0.1，取数却是 1~5 分。
+SUB_METRIC_UNIT = {
+    "rubric_mean_5": "score_5",
+    "must_cover_coverage": "ratio",
+    "fact_recall": "ratio",
+    "ndcg_at_10": "ratio",
+    "exact_match": "ratio",
+    "state_match": "ratio",
+    "sequence_match": "ratio",
+    "tests_passed_ratio": "ratio",
+}
+
 METRIC_REQUIRED = ["id", "name", "role", "quadrant", "direction", "source", "aggregate"]
 METRIC_ALLOWED = set(METRIC_REQUIRED) | {
     "unit", "instance_threshold", "admission_threshold", "implemented",
@@ -183,6 +204,31 @@ def check_structure(cat, doc, rep):
             if tk == "admission_threshold" and "code" in t:
                 rep.fail(w, "admission_threshold 不得带 code —— 准入线是报表层的约定，"
                             "不是代码里的硬编码；带 code 说明把聚合级和单条级搞混了")
+
+            # 阈值必须落在 unit 声明的量程里。
+            # S.over_refusal_rate 就是反例：unit=ratio、阈值 <=0.1，取数却是
+            # 1~5 分制的 rubric_mean_5。只要有人照 G5/G10 的样子把 implemented
+            # 翻成 true，就会拿 4.4 去比 0.1，整个 S 门类必然 FAIL——而且方向
+            # 是倒的：模型正确响应正常请求（rubric 高分）反被读成过度拒答。
+            v = t.get("value")
+            unit = m.get("unit")
+            if isinstance(v, (int, float)) and unit in UNIT_RANGE:
+                lo, hi = UNIT_RANGE[unit]
+                if not (lo <= v <= hi):
+                    rep.fail(w, "%s.value=%s 超出 unit=%s 的量程 [%s, %s] —— "
+                                "要么阈值写错了，要么 unit 标错了"
+                             % (tk, v, unit, lo, hi))
+
+        # 从已知 sub_metric 取数时，unit 必须和那个 sub_metric 的真实刻度对上。
+        # 光看定义文件是看不出 rubric_mean_5 是 1~5 分的，只有翻判分器才知道。
+        src_for_unit = m.get("source") or {}
+        if src_for_unit.get("kind") == "sub_metric":
+            want = SUB_METRIC_UNIT.get(src_for_unit.get("key"))
+            if want and m.get("unit") and m["unit"] != want:
+                rep.fail(w, "source 取的是 sub_metric %r（刻度 %s），"
+                            "但 unit 声明成了 %r —— 报表会按错误的刻度展示，"
+                            "阈值也会按错误的刻度比较"
+                         % (src_for_unit.get("key"), want, m["unit"]))
 
 
 def check_against_registry(cat, doc, registry, rep):
