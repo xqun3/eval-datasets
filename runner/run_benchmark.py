@@ -1,0 +1,195 @@
+#!/usr/bin/env python3
+"""跑一个被测模型，产出 metrics/aggregate.py 能直接消费的 run 文件。
+
+    python3 runner/run_benchmark.py \
+        --model google:gemini-3.8-flash \
+        --out runs/gemini.jsonl
+
+    python3 metrics/aggregate.py --run runs/gemini.jsonl
+
+对比两个模型：分别跑两次，再用 runner/compare.py。
+
+关于成本
+--------
+判分器的 ``cost.tokens`` / ``cost.usd`` 一直是 0，因为判分器看不到模型侧的
+用量。这里会把真实用量合并进 CheckerResult.cost，四象限的成本象限才有数。
+定价用 --price-in / --price-out 传（美元 / 1k tokens），不传就只统计 token。
+
+关于失败
+--------
+三种失败必须分开记，不能都算成 0 分：
+  model_error  —— 请求失败/被安全过滤，模型根本没产出 → 不计入质量均值
+  parse_failed —— 产出了但不符合输出契约 → 计入，但单独统计指令遵循率
+  低分         —— 正常作答但答错 → 计入
+"""
+
+import argparse
+import json
+import os
+import sys
+import time
+from typing import Any, Dict, List, Optional
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+sys.path.insert(0, os.path.join(ROOT, "benchmark_v0.2", "adapter"))
+sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(ROOT, "metrics"))
+
+from adapter.checkers import run_check           # noqa: E402
+from adapter.schema import TaskInstance          # noqa: E402
+
+import clients                                   # noqa: E402
+import parsing                                   # noqa: E402
+import prompting                                 # noqa: E402
+
+DATASET = os.path.join(ROOT, "dataset")
+
+
+def iter_instances(only: Optional[List[str]] = None):
+    for name in sorted(os.listdir(DATASET)):
+        path = os.path.join(DATASET, name, "instances.jsonl")
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                raw = json.loads(line)
+                if only and raw.get("category") not in only:
+                    continue
+                yield raw
+
+
+def run_one(model: clients.BaseModel, raw: Dict[str, Any],
+            env: Optional[Dict[str, Any]], budget: int) -> Dict[str, Any]:
+    inst = TaskInstance.from_dict(raw)
+    built = prompting.build_prompt(inst, root=DATASET, budget=budget)
+
+    if isinstance(model, clients.ScriptedModel):
+        model.current_id = inst.id
+
+    rec: Dict[str, Any] = {
+        "instance_id": inst.id,
+        "category": inst.category,
+        "checker_id": inst.checker,
+        "model": model.tag,
+        "instance": raw,
+        "prompt_meta": built["meta"],
+    }
+
+    try:
+        gen = model.generate(built["system"], built["user"])
+    except clients.ModelError as exc:
+        # 模型没产出。这不是 0 分，是缺测 —— aggregate 里 value=None 不进均值。
+        rec["status"] = "model_error"
+        rec["error"] = str(exc)
+        rec["result"] = {
+            "score": None, "passed": None, "layer": None,
+            "sub_metrics": {}, "violations": [],
+            "detail": {"model_error": str(exc)},
+            "cost": {"tokens": 0, "usd": 0.0, "wall_s": 0.0},
+        }
+        return rec
+
+    parsed = parsing.parse(inst.checker, gen["text"])
+    result = run_check(inst, parsed["response"], checker_id=inst.checker, env=env)
+
+    # 把模型侧的真实成本并进来。wall_s 保持为判分耗时，模型延迟单列。
+    result["cost"]["tokens"] = gen["prompt_tokens"] + gen["completion_tokens"]
+    result["cost"]["prompt_tokens"] = gen["prompt_tokens"]
+    result["cost"]["completion_tokens"] = gen["completion_tokens"]
+    result["cost"]["usd"] = round(gen["usd"], 6)
+    result["cost"]["latency_s"] = gen["latency_s"]
+
+    result["detail"]["parse"] = parsed["parse"]
+    result["sub_metrics"]["contract_followed"] = (
+        1.0 if parsed["parse"]["how"] in ("raw", "json", "fenced", "answer_line")
+        else 0.0)
+
+    rec["status"] = "ok" if parsed["parse"]["ok"] else "parse_failed"
+    rec["raw_text"] = gen["text"]
+    rec["finish_reason"] = gen.get("finish_reason")
+    rec["result"] = result
+    return rec
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--model", required=True,
+                    help="provider:model，例如 google:gemini-3.8-flash 或 "
+                         "anthropic:claude-opus-5")
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--only", nargs="*", help="只跑指定门类，例如 --only G1 G7")
+    ap.add_argument("--limit", type=int, help="只跑前 N 条（冒烟用）")
+    ap.add_argument("--base-url")
+    ap.add_argument("--api-key-env", help="从哪个环境变量读 key")
+    ap.add_argument("--temperature", type=float, default=0.0)
+    ap.add_argument("--max-tokens", type=int, default=4096)
+    ap.add_argument("--budget", type=int, default=prompting.DEFAULT_CONTEXT_BUDGET)
+    ap.add_argument("--price-in", type=float, default=0.0,
+                    help="美元 / 1k prompt tokens")
+    ap.add_argument("--price-out", type=float, default=0.0,
+                    help="美元 / 1k completion tokens")
+    ap.add_argument("--judge", action="store_true",
+                    help="给 L3 门类接真实 judge（需 JUDGE_BASE_URL / JUDGE_MODEL）")
+    ap.add_argument("--sleep", type=float, default=0.0, help="每条之间的间隔秒数")
+    args = ap.parse_args()
+
+    kw: Dict[str, Any] = {"temperature": args.temperature,
+                          "max_tokens": args.max_tokens,
+                          "usd_per_1k_prompt": args.price_in,
+                          "usd_per_1k_completion": args.price_out}
+    if args.base_url:
+        kw["base_url"] = args.base_url
+    if args.api_key_env:
+        kw["api_key"] = os.environ.get(args.api_key_env, "")
+    model = clients.build(args.model, **kw)
+
+    env = None
+    judge_provider = None
+    if args.judge:
+        from judge.runner import make_env      # noqa: E402
+        from judge import client as jc         # noqa: E402
+        env = make_env()
+        runner = env.get("_judge_runner")
+        if runner and not isinstance(runner.client, jc.StubClient):
+            judge_provider = os.environ.get("JUDGE_PROVIDER")
+            clients.assert_not_same_provider(model, judge_provider)
+
+    os.makedirs(os.path.dirname(os.path.abspath(args.out)) or ".", exist_ok=True)
+    counts = {"ok": 0, "parse_failed": 0, "model_error": 0}
+    t0 = time.time()
+
+    with open(args.out, "w", encoding="utf-8") as out:
+        for n, raw in enumerate(iter_instances(args.only), 1):
+            if args.limit and n > args.limit:
+                break
+            rec = run_one(model, raw, env, args.budget)
+            counts[rec["status"]] = counts.get(rec["status"], 0) + 1
+            out.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
+            out.flush()          # 中途挂掉也保住已跑的部分
+            score = (rec["result"] or {}).get("score")
+            print("  [%3d] %-38s %-20s %s %s"
+                  % (n, rec["instance_id"], rec["checker_id"],
+                     ("%.3f" % score) if isinstance(score, float) else "  —  ",
+                     "" if rec["status"] == "ok" else "<%s>" % rec["status"]))
+            if args.sleep:
+                time.sleep(args.sleep)
+
+    u = model.usage.to_dict()
+    print("\n%s  用时 %.1fs" % (model.tag, time.time() - t0))
+    print("  正常 %d / 契约未遵循 %d / 模型无产出 %d"
+          % (counts["ok"], counts["parse_failed"], counts["model_error"]))
+    print("  tokens %d（in %d / out %d）  usd %.4f  模型总延迟 %.1fs"
+          % (u["tokens"], u["prompt_tokens"], u["completion_tokens"],
+             u["usd"], u["wall_s"]))
+    if u["usd"] == 0.0 and u["tokens"] > 0:
+        print("  注意：未传 --price-in/--price-out，成本只有 token 数没有金额")
+    print("\n下一步: python3 metrics/aggregate.py --run %s" % args.out)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
