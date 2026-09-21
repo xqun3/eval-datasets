@@ -47,8 +47,16 @@ DATASET = os.path.join(ROOT, "dataset")
 
 
 def iter_instances(only: Optional[List[str]] = None):
+    """产出 (实例, 该实例所在目录)。
+
+    目录必须跟着实例走：context.files[].path 形如 "context/payments.csv"，
+    是**相对门类目录**的。以前统一按 dataset/ 解析，于是 G6 的 7 个数据文件
+    全被判成「不在本地」，模型在完全没有数据的情况下被要求做数据分析，
+    答了 "Not Applicable"（题面明确要求无法作答时这么答）却被判 0 分。
+    """
     for name in sorted(os.listdir(DATASET)):
-        path = os.path.join(DATASET, name, "instances.jsonl")
+        src_dir = os.path.join(DATASET, name)
+        path = os.path.join(src_dir, "instances.jsonl")
         if not os.path.exists(path):
             continue
         with open(path, encoding="utf-8") as fh:
@@ -59,13 +67,14 @@ def iter_instances(only: Optional[List[str]] = None):
                 raw = json.loads(line)
                 if only and raw.get("category") not in only:
                     continue
-                yield raw
+                yield raw, src_dir
 
 
 def run_one(model: clients.BaseModel, raw: Dict[str, Any],
-            env: Optional[Dict[str, Any]], budget: int) -> Dict[str, Any]:
+            env: Optional[Dict[str, Any]], budget: int,
+            root: Optional[str] = None) -> Dict[str, Any]:
     inst = TaskInstance.from_dict(raw)
-    built = prompting.build_prompt(inst, root=DATASET, budget=budget)
+    built = prompting.build_prompt(inst, root=root or DATASET, budget=budget)
 
     if isinstance(model, clients.ScriptedModel):
         model.current_id = inst.id
@@ -194,10 +203,10 @@ def main() -> int:
     t0 = time.time()
 
     with open(args.out, "w", encoding="utf-8") as out:
-        for n, raw in enumerate(iter_instances(args.only), 1):
+        for n, (raw, src_dir) in enumerate(iter_instances(args.only), 1):
             if args.limit and n > args.limit:
                 break
-            rec = run_one(model, raw, env, args.budget)
+            rec = run_one(model, raw, env, args.budget, root=src_dir)
             if judge_caveat:
                 rec["judge_caveat"] = judge_caveat
             if model.dropped_params:

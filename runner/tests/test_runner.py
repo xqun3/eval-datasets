@@ -28,16 +28,22 @@ from adapter.schema import TaskInstance   # noqa: E402
 DATASET = os.path.join(ROOT, "dataset")
 
 
+SRC_DIR = {}          # instance_id -> 该实例所在目录（文件路径的解析根）
+
+
 def load_all():
     out = []
     for name in sorted(os.listdir(DATASET)):
-        p = os.path.join(DATASET, name, "instances.jsonl")
+        d = os.path.join(DATASET, name)
+        p = os.path.join(d, "instances.jsonl")
         if not os.path.exists(p):
             continue
         with open(p, encoding="utf-8") as fh:
             for line in fh:
                 if line.strip():
-                    out.append(json.loads(line))
+                    r = json.loads(line)
+                    SRC_DIR[r["id"]] = d
+                    out.append(r)
     return out
 
 
@@ -125,13 +131,46 @@ class TestPromptCoverage(unittest.TestCase):
         # G9 是假执行，必须标出来，否则报表会把规划能力当成执行能力
         self.assertTrue(built["meta"]["simulated_execution"])
 
+    def test_context_files_on_disk_actually_reach_the_prompt(self):
+        """磁盘上有的文件必须真的进 prompt。
+
+        回归：context.files[].path 是相对门类目录的（"context/payments.csv"），
+        以前统一按 dataset/ 解析，G6 的 7 个文件全被判成「不在本地」。模型
+        在零数据的情况下被要求做数据分析，按题面要求答了 "Not Applicable"，
+        判 0 分。判分系统自己没喂数据，却把账记在模型头上。
+        """
+        checked = 0
+        for raw in load_all():
+            files = (raw.get("context") or {}).get("files") or []
+            if not files:
+                continue
+            root = SRC_DIR[raw["id"]]
+            on_disk = [f["path"] for f in files
+                       if os.path.exists(os.path.join(root, f["path"]))]
+            if not on_disk:
+                continue
+            built = prompting.build_prompt(TaskInstance.from_dict(raw), root=root)
+            notes = " ".join(built["meta"].get("file_notes") or [])
+            for p in on_disk:
+                self.assertNotIn("%s 不在本地" % p, notes,
+                                 "%s: %s 在磁盘上却没进 prompt" % (raw["id"], p))
+                self.assertIn(p, built["user"],
+                              "%s: %s 没有出现在 prompt 里" % (raw["id"], p))
+                checked += 1
+        self.assertGreater(checked, 0, "没有任何带 context.files 的实例被检查到")
+
     def test_big_file_is_marked_as_sampled(self):
-        """G6 的 23MB payments.csv 只能给抽样，必须明说，不能假装完整。"""
+        """G6 的 23MB payments.csv 只能给抽样，必须明说，不能假装完整。
+
+        注意这里**不再**接受「不在本地」—— 原版把缺失也算通过，等于给
+        路径解析 bug 开了绿灯。文件在磁盘上，就必须是「截断」而不是「缺失」。
+        """
         raw = next(r for r in load_all() if r["category"] == "G6")
-        built = prompting.build_prompt(TaskInstance.from_dict(raw), root=DATASET)
+        root = SRC_DIR[raw["id"]]
+        built = prompting.build_prompt(TaskInstance.from_dict(raw), root=root)
         notes = built["meta"].get("file_notes") or []
-        self.assertTrue(any("截断" in n or "不在本地" in n for n in notes),
-                        "大文件没有被标记为抽样/缺失: %s" % notes)
+        self.assertTrue(any("截断" in n for n in notes),
+                        "大文件没有被标记为抽样: %s" % notes)
 
 
 class TestParsing(unittest.TestCase):

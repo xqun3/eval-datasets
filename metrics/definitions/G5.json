@@ -13,7 +13,7 @@
       "unit": "score_5",
       "source": {"kind": "sub_metric", "checker": "rubric_judge", "key": "rubric_mean_5"},
       "aggregate": "mean",
-      "instance_threshold": {"op": ">=", "value": 4.0, "code": "rubric_judge.py:85"},
+      "instance_threshold": {"op": ">=", "value": 4.0, "code": "rubric_judge.py:122"},
       "admission_threshold": {"op": ">=", "value": 3.8},
       "implemented": false,
       "blocked_by": "env['judge'] 未接真实 LLM，回落 heuristic_judge",

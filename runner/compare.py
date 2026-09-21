@@ -161,6 +161,33 @@ def contract_rate(recs) -> Optional[float]:
     return sum(vals) / len(vals) if vals else None
 
 
+def category_status() -> Dict[str, Dict[str, str]]:
+    """读 metrics/definitions/<CAT>.json 的 status。
+
+    被标成 unusable 的门类，分差不是模型差距而是题目/环境缺陷造成的。
+    报表必须自己把它们摘出去 —— 定义文件里标了而报表不读，等于没标。
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    ddir = os.path.join(os.path.dirname(here), "metrics", "definitions")
+    out: Dict[str, Dict[str, str]] = {}
+    if not os.path.isdir(ddir):
+        return out
+    for fn in sorted(os.listdir(ddir)):
+        if not fn.endswith(".json") or fn.startswith("_"):
+            continue
+        try:
+            with open(os.path.join(ddir, fn), encoding="utf-8") as fh:
+                d = json.load(fh)
+        except (ValueError, OSError):
+            continue
+        if d.get("status", "usable") != "usable":
+            out[d.get("category", fn[:-5])] = {
+                "status": d["status"],
+                "reason": d.get("status_reason", ""),
+            }
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--a", required=True, help="模型 A 的 run 文件")
@@ -172,6 +199,12 @@ def main() -> int:
     b_recs, b_tag = load(args.b)
     per_cat = paired(a_recs, b_recs)
 
+    unusable = category_status()
+    for cat, info in unusable.items():
+        if cat in per_cat:
+            per_cat[cat]["verdict"] = "UNUSABLE"
+            per_cat[cat]["reason"] = info["reason"]
+
     report = {
         "a": {"tag": a_tag, "records": len(a_recs),
               "status": status_summary(a_recs), "cost": cost_summary(a_recs),
@@ -180,6 +213,7 @@ def main() -> int:
               "status": status_summary(b_recs), "cost": cost_summary(b_recs),
               "contract_followed": contract_rate(b_recs)},
         "by_category": per_cat,
+        "unusable_categories": unusable,
     }
 
     if args.json:
@@ -196,8 +230,9 @@ def main() -> int:
         fa = "%.3f" % d["a_mean"] if d["a_mean"] is not None else "  —  "
         fb = "%.3f" % d["b_mean"] if d["b_mean"] is not None else "  —  "
         fp = "%.4f" % d["p_value"] if d["p_value"] is not None else "  —  "
-        print("%-6s %-5d %-8s %-8s %-6d %-6d %-6d %-9s %s"
-              % (cat, d["n"], fa, fb, d["wins"], d["ties"], d["losses"],
+        mark = "⛔" if cat in unusable else "  "
+        print("%s%-6s %-5d %-8s %-8s %-6d %-6d %-6d %-9s %s"
+              % (mark, cat, d["n"], fa, fb, d["wins"], d["ties"], d["losses"],
                  fp, d["verdict"]))
 
     print("\n" + "-" * 84)
@@ -213,7 +248,15 @@ def main() -> int:
                  ("%.3f" % cr) if cr is not None else "n/a"))
         print("      状态: %s" % side["status"])
 
-    insuf = [c for c, d in per_cat.items() if d["verdict"] == "INSUFFICIENT"]
+    if unusable:
+        print("\n" + "!" * 84)
+        for cat, info in sorted(unusable.items()):
+            print("⛔ %s 当前不可用，分数不反映模型能力，不得进入准入/映射决策。" % cat)
+            print("   原因: %s" % info["reason"])
+        print("!" * 84)
+
+    insuf = [c for c, d in per_cat.items()
+             if d["verdict"] == "INSUFFICIENT" and c not in unusable]
     if insuf:
         print("\n" + "!" * 84)
         print("以下门类样本量不足，不得据此下结论: %s" % ", ".join(sorted(insuf)))

@@ -13,7 +13,7 @@
       "unit": "score_5",
       "source": {"kind": "sub_metric", "checker": "rubric_judge", "key": "rubric_mean_5"},
       "aggregate": "mean",
-      "instance_threshold": {"op": ">=", "value": 4.0, "code": "rubric_judge.py:85"},
+      "instance_threshold": {"op": ">=", "value": 4.0, "code": "rubric_judge.py:122"},
       "admission_threshold": {"op": ">=", "value": 4.0},
       "implemented": false,
       "blocked_by": "env['judge'] 未接真实 LLM，默认回落到 heuristic_judge（rubric_judge.py:30-55），打分只看 must_cover 字面覆盖率与格式标记数，不能代表写作质量",

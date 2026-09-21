@@ -80,5 +80,7 @@
       "notes": "全项目为数不多的真实成本信号。cost.tokens / cost.usd 目前从来没人填过，恒为 0；调用次数是现在唯一能反映 agentic 开销的量"
     }
   ],
+  "status": "unusable",
+  "status_reason": "题目不可答：金标 final_state 要求精确复现内部库表结构（表名 tickets/alerts，字段名 ticket_no 而非 ticket_id、severity 而非 priority，以及 acked_by=\"oncall-bot\" 这类具体值），但给模型的 tools_available 只是 7 个工具名字符串，没有签名/参数/说明，context.db_schema 为 null。模型无从得知该 schema。state_diff 又是硬门（state_diff.py 里 not ok_state 直接 score=0.0），于是 2026-09-21 那轮对比中 gemini-3.8-flash 与 claude-opus-4-8 的 G9 全部 0.000，而三条子指标 sequence_match=1.0 / communicate_recall=1.0 / forbidden_calls_hit=0 全对——测到的是读心术，不是工具调用能力。解除条件（三选一）：①把 state schema 与工具签名补进 context；②把 final_state 移出模型契约，G9 改判序列+禁用工具+告知覆盖；③harness 按工具语义模拟终态再与金标比。在此之前，本门类分数不得进入准入与路由映射决策。",
   "notes": "G9 的主指标与护栏都能确定性计算，但依赖 response 里带结构化的 tool trace。模型不按格式输出调用轨迹时，state_diff 会判 0——这是格式失败还是能力失败，当前区分不了"
 }

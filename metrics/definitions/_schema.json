@@ -22,6 +22,16 @@
       "minItems": 1,
       "items": {"$ref": "#/definitions/metric"}
     },
+    "status": {
+      "type": "string",
+      "enum": ["usable", "unusable"],
+      "default": "usable",
+      "description": "门类当前是否可用于得出结论。unusable 表示题目设计或环境缺陷会让分数系统性失真（例如 G9 要求模型凭空猜内部 schema），报表必须把它排除在准入/映射决策之外，而不是当成模型表现差。缺省视为 usable。"
+    },
+    "status_reason": {
+      "type": "string",
+      "description": "status=unusable 时必须说明原因与解除条件"
+    },
     "notes": {"type": "string"}
   },
   "definitions": {

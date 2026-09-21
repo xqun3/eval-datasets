@@ -75,7 +75,8 @@ METRIC_ALLOWED = set(METRIC_REQUIRED) | {
     "blocked_by", "notes"}
 SOURCE_ALLOWED = {"kind", "checker", "key", "rule", "expr"}
 TOP_REQUIRED = ["category", "name", "primary_layer", "checkers", "metrics"]
-TOP_ALLOWED = set(TOP_REQUIRED) | {"notes"}
+TOP_ALLOWED = set(TOP_REQUIRED) | {"notes", "status", "status_reason"}
+STATUS_VALUES = {"usable", "unusable"}
 
 ID_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -112,6 +113,12 @@ def check_structure(cat, doc, rep):
     for k in doc:
         if k not in TOP_ALLOWED:
             rep.fail(where, "出现未定义字段 %s" % k)
+    status = doc.get("status", "usable")
+    if status not in STATUS_VALUES:
+        rep.fail(where, "status=%r 不在 %s 内" % (status, sorted(STATUS_VALUES)))
+    # 停用必须写清为什么。不写原因的停用标记，过两周就没人知道能不能解除。
+    if status == "unusable" and not (doc.get("status_reason") or "").strip():
+        rep.fail(where, "status=unusable 必须同时写 status_reason（原因与解除条件）")
     if doc.get("category") != cat:
         rep.fail(where, "category=%r 与文件名不符" % doc.get("category"))
     if doc.get("primary_layer") not in ENUMS["primary_layer"]:
