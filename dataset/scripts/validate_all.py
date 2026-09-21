@@ -38,6 +38,69 @@ from adapter.schema import TaskInstance, validate_instance  # noqa: E402
 #                        要真生成一段满足约束的文本才能验，不是回放能解决的。
 NO_REPLAY = {"format_compliance"}
 
+# ---------------------------------------------------------------------------
+# format_compliance 的约束自洽性
+# ---------------------------------------------------------------------------
+# 回放验不了这类金标，于是它整个逃过了闭环 —— G4 的 3 条实例在下面的统计里
+# 一直显示「跳过」。代价是两条错约束一路活到了跑批：
+#   0002  prompt 写「less than 5 sentences」，金标写成 at_least:5。方向反了，
+#         结果只写 2 句（遵循指令）的模型被判失败，写满 5 句（违反指令）的
+#         反倒满分 —— 这不是漏判，是把胜负判反。
+#   0003  prompt 写「30-line poem，每行一句」，金标同时挂 at_least:30 和
+#         at_least:31。后者永远不可能满足。
+# 下面这些检查不需要看回答，光看约束清单本身就能抓出来。
+
+_BOUNDS = {"word_count": ("word_count_at_least", "word_count_at_most"),
+           "sentence_count": ("sentence_count_at_least", "sentence_count_at_most")}
+
+
+def _parse_ifeval(entries):
+    """把 "ifeval:key:arg" 拆成 (key, arg)，非 ifeval 条目跳过。"""
+    out = []
+    for e in entries or []:
+        if not isinstance(e, str) or not e.startswith("ifeval:"):
+            continue
+        body = e[len("ifeval:"):]
+        key, _, arg = body.partition(":")
+        out.append((key, arg))
+    return out
+
+
+def constraint_issues(inst: TaskInstance):
+    """静态检查一条实例的 ifeval 约束清单，返回问题描述列表。"""
+    from adapter.checkers.format_compliance import CONSTRAINTS
+
+    gv = inst.gold.get("value") if isinstance(inst.gold, dict) else None
+    parsed = _parse_ifeval((gv or {}).get("must_cover"))
+    if not parsed:
+        return []
+
+    issues = []
+    by_key = collections.defaultdict(list)
+    for key, arg in parsed:
+        if key not in CONSTRAINTS:
+            issues.append("未实现的约束 %r —— 判分时会被静默算作 unsupported，"
+                          "等于这条要求根本没生效" % key)
+            continue
+        by_key[key].append(arg)
+
+    # 同一个约束键出现多次：要么冗余，要么其中一条必然失败
+    for key, argv in by_key.items():
+        if len(argv) > 1:
+            issues.append("约束 %r 出现 %d 次（参数 %s）—— 同向阈值只需保留"
+                          "最严的那条，多出来的要么冗余要么写错了"
+                          % (key, len(argv), ", ".join(map(repr, argv))))
+
+    # 上下界互相矛盾：下界 > 上界，怎么写都过不了
+    for name, (lo_key, hi_key) in _BOUNDS.items():
+        los = [int(a) for a in by_key.get(lo_key, []) if str(a).lstrip("-").isdigit()]
+        his = [int(a) for a in by_key.get(hi_key, []) if str(a).lstrip("-").isdigit()]
+        if los and his and max(los) > min(his):
+            issues.append("%s 的下界 %d 大于上界 %d —— 这条实例无论回答什么"
+                          "都不可能满分" % (name, max(los), min(his)))
+    return issues
+
+
 
 def gold_response(inst: TaskInstance):
     """按 checker 反构一个「应当满分」的回答。
@@ -82,6 +145,7 @@ def main():
 
     stats = collections.defaultdict(collections.Counter)
     schema_errs, gold_fails, skipped, checked, total = [], [], [], 0, 0
+    constraint_errs = []
 
     for cat_dir in dirs:
         path = os.path.join(ROOT, cat_dir, "instances.jsonl")
@@ -106,6 +170,9 @@ def main():
             stats["checker"][inst.checker] += 1
             stats["split"][inst.split] += 1
             stats["source"][inst.source.split(":")[0].split("@")[0]] += 1
+
+            for issue in constraint_issues(inst):
+                constraint_errs.append((inst.id, issue))
 
             resp = gold_response(inst)
             if resp is None:
@@ -152,7 +219,12 @@ def main():
             print("    %-34s %-16s score=%.3f violations=%s" % (iid, ck, score, viol))
             print("        sub_metrics=%s" % (sub,))
 
-    return 1 if (schema_errs or gold_fails) else 0
+    if constraint_errs:
+        print("\n[约束定义问题 —— 判分会算错，必须修]")
+        for iid, issue in constraint_errs:
+            print("    %-34s %s" % (iid, issue))
+
+    return 1 if (schema_errs or gold_fails or constraint_errs) else 0
 
 
 if __name__ == "__main__":

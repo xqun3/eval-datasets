@@ -147,6 +147,16 @@ def check_structure(cat, doc, rep):
         if "unit" in m and m["unit"] not in ENUMS["unit"]:
             rep.fail(w, "unit=%r 不在枚举内" % m["unit"])
 
+        # guard 的唯一作用就是一票否决，而否决靠的是 admission_threshold。
+        # aggregate.py:339-340 只把「role in (primary,guard) 且算得出
+        # meets_admission」的指标纳入准入，而 meets_admission 只在写了
+        # admission_threshold 时才产生。所以标了 guard 却不写阈值，它会被
+        # 静默过滤掉 —— 看定义文件的人以为守卫开着，实际什么都不拦。
+        # G8.judge_stub_ratio 就是这么当了很久摆设的。
+        if m.get("role") == "guard" and "admission_threshold" not in m:
+            rep.fail(w, "role=guard 必须写 admission_threshold，"
+                        "否则它在准入判定里会被直接忽略（aggregate.py:340）")
+
         src = m.get("source") or {}
         for k in src:
             if k not in SOURCE_ALLOWED:

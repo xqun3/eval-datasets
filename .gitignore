@@ -47,3 +47,6 @@ dataset/G6_data_analysis/context/payments.csv
 .idea/
 .vscode/
 *.swp
+
+# rescore 的原地备份
+runs/*.bak

@@ -65,6 +65,7 @@
       "unit": "ratio",
       "source": {"kind": "derived", "expr": "该门类是否具备可执行环境（受限 python + 只读挂载 context/）"},
       "aggregate": "max",
+      "admission_threshold": {"op": ">=", "value": 1.0},
       "implemented": false,
       "blocked_by": "尚未搭建执行沙箱",
       "notes": "DABStep 本质是 agentic 任务：读手册 → 载数据 → 写代码 → 得数。现在只挂了文件没有执行环境，等于把 agentic 任务降级成了长上下文阅读题。这会系统性低估带工具的模型"

@@ -354,5 +354,84 @@ class TestCompareStats(unittest.TestCase):
         self.assertEqual(self.compare.usable_score(ok), 0.0)
 
 
+class TestRescore(unittest.TestCase):
+    """重判必须只动判分结果，绝不能改写模型侧的事实。
+
+    这个工具存在的理由是：金标/判分器改了以后不该逼人再烧一遍 API。
+    但它有个很容易犯的错 —— 重判时 ScriptedModel 会重新"生成"一次，
+    于是 tokens / usd / latency 全被写成脚本化模型的假值，成本象限
+    就被悄悄清零了。下面两条就是钉住这件事。
+    """
+
+    def setUp(self):
+        import rescore
+        self.rescore = rescore
+
+    def _fake_record(self):
+        return {
+            "instance_id": "X-1",
+            "category": "GX",
+            "checker_id": "format_compliance",
+            "model": "vertex-google/some-real-model",
+            "instance": {},
+            "status": "ok",
+            "raw_text": "no commas here",
+            "finish_reason": "stop",
+            "judge_caveat": "同厂商 judge，仅供参考",
+            "result": {
+                "score": 0.0, "passed": False, "layer": "L1",
+                "sub_metrics": {}, "violations": [], "detail": {},
+                "cost": {"tokens": 4321, "prompt_tokens": 4000,
+                         "completion_tokens": 321, "usd": 0.0123,
+                         "latency_s": 9.87, "wall_s": 0.001},
+            },
+        }
+
+    def _fresh_instance(self, must_cover):
+        return {
+            "id": "X-1", "category": "GX", "subtype": "S", "difficulty": "L1",
+            "lang": "en", "prompt": "write something",
+            "context": {"files": [], "db_schema": None, "kb_docs": []},
+            "tools_available": [],
+            "gold": {"type": "rubric",
+                     "value": {"dims": [], "must_cover": must_cover}},
+            "checker": "format_compliance", "must_not": [],
+            "source": "expert_authored", "split": "dev",
+        }
+
+    def test_model_side_facts_survive_rescoring(self):
+        rec = self._fake_record()
+        new = self.rescore.rescore_record(
+            rec, self._fresh_instance(["ifeval:no_commas:"]),
+            DATASET, None, 4000)
+
+        self.assertEqual(new["model"], "vertex-google/some-real-model")
+        self.assertEqual(new["finish_reason"], "stop")
+        self.assertEqual(new["judge_caveat"], "同厂商 judge，仅供参考")
+        cost = new["result"]["cost"]
+        self.assertEqual(cost["tokens"], 4321)
+        self.assertEqual(cost["prompt_tokens"], 4000)
+        self.assertEqual(cost["completion_tokens"], 321)
+        self.assertEqual(cost["usd"], 0.0123)
+        self.assertEqual(cost["latency_s"], 9.87)
+
+    def test_rescore_uses_the_gold_on_disk_not_the_stored_snapshot(self):
+        rec = self._fake_record()
+        # 记录里存的旧金标是「必须有逗号」这种会失败的约束
+        rec["instance"] = self._fresh_instance(["ifeval:word_count_at_least:99"])
+
+        new = self.rescore.rescore_record(
+            rec, self._fresh_instance(["ifeval:no_commas:"]),
+            DATASET, None, 4000)
+        # 用的是传进去的新金标，所以这次过了
+        self.assertEqual(new["result"]["score"], 1.0)
+        self.assertTrue(new["result"]["passed"])
+
+    def test_judge_checkers_are_listed_so_they_can_be_skipped(self):
+        # 不带 --judge 重判 rubric_judge，会把真 judge 的分换成桩分，
+        # 比不重判更糟。所以这类 checker 必须在跳过名单里。
+        self.assertIn("rubric_judge", self.rescore.JUDGE_CHECKERS)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

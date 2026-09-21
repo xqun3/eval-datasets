@@ -40,8 +40,16 @@ def _c_word_count_at_most(text: str, arg: str) -> bool:
     return len(_words(text)) <= int(arg)
 
 
+def _sentences(text: str) -> List[str]:
+    return [s for s in re.split(r"[.!?。！？]\s*", text) if s.strip()]
+
+
 def _c_sentence_count_at_least(text: str, arg: str) -> bool:
-    return len([s for s in re.split(r"[.!?。！？]\s*", text) if s.strip()]) >= int(arg)
+    return len(_sentences(text)) >= int(arg)
+
+
+def _c_sentence_count_at_most(text: str, arg: str) -> bool:
+    return len(_sentences(text)) <= int(arg)
 
 
 def _c_json_format(text: str, arg: str) -> bool:
@@ -114,6 +122,7 @@ CONSTRAINTS: Dict[str, Callable[[str, str], bool]] = {
     "word_count_at_least": _c_word_count_at_least,
     "word_count_at_most": _c_word_count_at_most,
     "sentence_count_at_least": _c_sentence_count_at_least,
+    "sentence_count_at_most": _c_sentence_count_at_most,
     "json_format": _c_json_format,
     "no_commas": _c_no_commas,
     "all_lowercase": _c_all_lowercase,

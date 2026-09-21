@@ -65,8 +65,9 @@
       "unit": "ratio",
       "source": {"kind": "sub_metric", "checker": "fact_recall", "key": "judge_stub"},
       "aggregate": "mean",
+      "admission_threshold": {"op": "==", "value": 0.0},
       "implemented": true,
-      "notes": "default_fact_judge 永远返回 None（弃权），回落到规则匹配。故障诊断的根因表述方式多（「磁盘满」/「inode 耗尽」/「/var 分区写满」），纯字面匹配漏判率高，这个值恒为 1.0 意味着 root_cause_top3 偏低估"
+      "notes": "报表可信度守卫。judge_stub=true 表示回落到了 default_fact_judge（永远弃权 -> 纯字面匹配）。故障诊断的根因表述方式多（「磁盘满」/「inode 耗尽」/「/var 分区写满」），字面匹配漏判率高，此时 root_cause_top3 是低估值，不得用于准入。不带 --judge 跑、或 judge 不可用时该值为 1.0；2026-09-21 接入 Vertex judge 后实测 0.000。⚠️ 本项此前标着 role=guard 却没写 admission_threshold —— aggregate.py:340 要求两者同时具备才进准入，所以它一直是个摆设，已补"
     }
   ],
   "notes": "G8 的两个 SCHEMA 主指标一个是近似实现、一个完全没实现。三条实例均为人工撰写（公开故障诊断集缺少可机检的结构化根因标注）"

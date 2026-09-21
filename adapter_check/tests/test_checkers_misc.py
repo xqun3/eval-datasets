@@ -298,6 +298,22 @@ class TestFormatCompliance(unittest.TestCase):
         self.assertEqual(format_compliance(i, {"text": "yes, commas"})["score"], 0.0)
         self.assertEqual(format_compliance(i, {"text": "中文，逗号"})["score"], 0.0)
 
+    def test_sentence_count_bounds(self):
+        four = "One. Two. Three. Four."
+        five = "One. Two. Three. Four. Five."
+
+        lo = rubric_inst(["ifeval:sentence_count_at_least:5"])
+        self.assertEqual(format_compliance(lo, {"text": five})["score"], 1.0)
+        self.assertEqual(format_compliance(lo, {"text": four})["score"], 0.0)
+
+        # 「less than 5 sentences (excluding 5)」= 上界 4。方向写反过一次：
+        # G4-0002 的金标本来写的是 at_least:5，于是只写 2 句（遵循了指令）的
+        # 回答被判失败，写满 5 句（违反了指令）的回答反倒满分。
+        hi = rubric_inst(["ifeval:sentence_count_at_most:4"])
+        self.assertEqual(format_compliance(hi, {"text": four})["score"], 1.0)
+        self.assertEqual(format_compliance(hi, {"text": five})["score"], 0.0)
+        self.assertEqual(format_compliance(hi, {"text": "Just one."})["score"], 1.0)
+
     def test_json_format(self):
         i = rubric_inst(["ifeval:json_format:"])
         self.assertEqual(format_compliance(i, {"text": '{"a": 1}'})["score"], 1.0)
