@@ -176,26 +176,135 @@ class HttpClient(BaseClient):
         raise JudgeError("judge 请求失败 %d 次: %s" % (self.retries, last))
 
 
+class VertexGeminiJudge(BaseClient):
+    """Vertex 上的 Gemini 当 judge。
+
+    ⚠️ 用 Gemini 给 Gemini 打分是同厂商评审（self-preference）。
+    benchmark_plan.md 的消偏约束要求 judge 不得与被测模型同源。
+    本类只负责发请求，红线在 runner/clients.py::assert_not_same_provider
+    和 run_benchmark 的 --allow-same-vendor-judge 开关上把。
+    """
+
+    name = "vertex"
+    provider = "google"
+
+    def __init__(self, model: str, project: Optional[str] = None,
+                 location: str = "global", temperature: float = 0.0,
+                 max_tokens: int = 1024, timeout_s: float = 90.0,
+                 retries: int = 3):
+        BaseClient.__init__(self)
+        import sys as _sys
+        _here = os.path.dirname(os.path.abspath(__file__))
+        _runner = os.path.join(os.path.dirname(os.path.dirname(_here)), "runner")
+        if _runner not in _sys.path:
+            _sys.path.insert(0, _runner)
+        from gcp_auth import TokenProvider, adc_quota_project
+
+        self._tp = TokenProvider()
+        self.model = model
+        self.project = (project or os.environ.get("VERTEX_PROJECT")
+                        or adc_quota_project())
+        if not self.project:
+            raise JudgeError("judge 没有可用的 Vertex project")
+        self.location = location
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.timeout_s = timeout_s
+        self.retries = retries
+
+    def _url(self) -> str:
+        host = ("https://aiplatform.googleapis.com" if self.location == "global"
+                else "https://%s-aiplatform.googleapis.com" % self.location)
+        return ("%s/v1/projects/%s/locations/%s/publishers/google/models/%s"
+                ":generateContent" % (host, self.project, self.location,
+                                      self.model))
+
+    def chat(self, messages: List[Dict[str, str]], **kw) -> str:
+        system = "\n".join(m["content"] for m in messages
+                           if m.get("role") == "system")
+        user = "\n\n".join(m["content"] for m in messages
+                           if m.get("role") != "system")
+        payload: Dict[str, Any] = {
+            "contents": [{"role": "user", "parts": [{"text": user}]}],
+            "generationConfig": {"temperature": self.temperature,
+                                 "maxOutputTokens": self.max_tokens,
+                                 "responseMimeType": "application/json"},
+        }
+        if system:
+            payload["systemInstruction"] = {"parts": [{"text": system}]}
+
+        headers = {"Authorization": "Bearer %s" % self._tp.token(),
+                   "Content-Type": "application/json",
+                   "x-goog-user-project": self.project}
+        data = json.dumps(payload).encode("utf-8")
+
+        last = None
+        for attempt in range(self.retries):
+            t0 = time.time()
+            try:
+                req = urllib.request.Request(self._url(), data=data,
+                                             headers=headers)
+                with urllib.request.urlopen(req, timeout=self.timeout_s) as fh:
+                    body = json.loads(fh.read().decode("utf-8"))
+                self.wall_s += time.time() - t0
+                self.calls += 1
+                um = body.get("usageMetadata") or {}
+                self.prompt_tokens += int(um.get("promptTokenCount") or 0)
+                self.completion_tokens += int(um.get("candidatesTokenCount") or 0)
+                cands = body.get("candidates") or []
+                if not cands:
+                    raise JudgeError("judge 无候选返回（可能被安全过滤）")
+                parts = ((cands[0].get("content") or {}).get("parts") or [])
+                return "".join(p.get("text", "") for p in parts if "text" in p)
+            except urllib.error.HTTPError as exc:
+                self.wall_s += time.time() - t0
+                try:
+                    last = "HTTP %s %s" % (exc.code, exc.read().decode()[:200])
+                except Exception:
+                    last = "HTTP %s" % exc.code
+                if exc.code not in (408, 429) and exc.code < 500:
+                    break
+            except (urllib.error.URLError, ValueError, KeyError) as exc:
+                self.wall_s += time.time() - t0
+                last = repr(exc)
+            if attempt < self.retries - 1:
+                time.sleep(2.0 ** attempt)
+        raise JudgeError("judge 请求失败 %d 次: %s" % (self.retries, last))
+
+
 def from_env() -> BaseClient:
     """按环境变量装配 client。没配就返回 StubClient 并打印醒目提示。
 
-        JUDGE_BASE_URL   例如 http://localhost:8000/v1
-        JUDGE_MODEL      模型名
-        JUDGE_API_KEY    可选
-        JUDGE_REPLAY     回放文件路径，配了就套一层 ReplayClient
-        JUDGE_RECORD=1   回放 miss 时向上游真实请求并录制
+        JUDGE_VERTEX_MODEL   Vertex 上的 judge 模型，例如 gemini-3.1-pro-preview
+        VERTEX_PROJECT       项目（不给则取 ADC 的 quota project）
+        VERTEX_LOCATION      默认 global
+
+        JUDGE_BASE_URL       OpenAI 兼容端点（与上面二选一）
+        JUDGE_MODEL          模型名
+        JUDGE_API_KEY        可选
+
+        JUDGE_REPLAY         回放文件路径，配了就套一层 ReplayClient
+        JUDGE_RECORD=1       回放 miss 时向上游真实请求并录制
     """
+    replay = os.environ.get("JUDGE_REPLAY")
+    vertex_model = os.environ.get("JUDGE_VERTEX_MODEL")
     base = os.environ.get("JUDGE_BASE_URL")
     model = os.environ.get("JUDGE_MODEL")
-    replay = os.environ.get("JUDGE_REPLAY")
 
-    if base and model:
-        client: BaseClient = HttpClient(base, model)
-    else:
+    client: Optional[BaseClient] = None
+    if vertex_model:
+        client = VertexGeminiJudge(
+            vertex_model,
+            project=os.environ.get("VERTEX_PROJECT"),
+            location=os.environ.get("VERTEX_LOCATION") or "global")
+    elif base and model:
+        client = HttpClient(base, model)
+
+    if client is None:
         if replay and not os.environ.get("JUDGE_RECORD"):
             return ReplayClient(replay)
-        sys_warn("未配置 JUDGE_BASE_URL / JUDGE_MODEL，使用离线桩。"
-                 "本次 judge 分数无效，只能验证管线是否通。")
+        sys_warn("未配置 JUDGE_VERTEX_MODEL 或 JUDGE_BASE_URL/JUDGE_MODEL，"
+                 "使用离线桩。本次 judge 分数无效，只能验证管线是否通。")
         return StubClient()
 
     if replay:

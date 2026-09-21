@@ -297,29 +297,165 @@ class ScriptedModel(BaseModel):
 
 
 # --------------------------------------------------------------------------
+# Vertex AI
+# --------------------------------------------------------------------------
+# 与直连 API 的三处差异，每一处都踩过：
+#   1. global 端点的 host 没有区域前缀：aiplatform.googleapis.com，
+#      而区域端点是 us-central1-aiplatform.googleapis.com
+#   2. 用本地 ADC 调用时必须带 x-goog-user-project，否则 403
+#   3. Claude 走 :rawPredict（不是 :predict），body 是 Anthropic 原生格式
+#      再加一个 anthropic_version 字段，且 model 不出现在 body 里
+# --------------------------------------------------------------------------
+
+def _vertex_host(location: str) -> str:
+    if location == "global":
+        return "https://aiplatform.googleapis.com"
+    return "https://%s-aiplatform.googleapis.com" % location
+
+
+class _VertexBase(BaseModel):
+    def __init__(self, model: str, project: Optional[str] = None,
+                 location: str = "global", quota_project: Optional[str] = None,
+                 **kw):
+        BaseModel.__init__(self, model, **kw)
+        from gcp_auth import TokenProvider, adc_quota_project
+        self._tp = TokenProvider()
+        self.project = (project or os.environ.get("VERTEX_PROJECT")
+                        or adc_quota_project())
+        if not self.project:
+            raise ModelError("没有指定 Vertex project（--project 或 VERTEX_PROJECT）")
+        self.location = location or os.environ.get("VERTEX_LOCATION") or "global"
+        # 配额记在哪个项目下。用本地 ADC 时不带这个头会 403。
+        self.quota_project = quota_project or self.project
+
+    def _headers(self) -> Dict[str, str]:
+        return {"Authorization": "Bearer %s" % self._tp.token(),
+                "Content-Type": "application/json",
+                "x-goog-user-project": self.quota_project}
+
+    def _endpoint(self, publisher: str, verb: str) -> str:
+        return ("%s/v1/projects/%s/locations/%s/publishers/%s/models/%s:%s"
+                % (_vertex_host(self.location), self.project, self.location,
+                   publisher, self.model, verb))
+
+    @property
+    def tag(self) -> str:
+        return "vertex-%s/%s" % (self.provider, self.model)
+
+
+class VertexGeminiModel(_VertexBase):
+    provider = "google"
+
+    def generate(self, system: str, user: str) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "contents": [{"role": "user", "parts": [{"text": user}]}],
+            "generationConfig": {"temperature": self.temperature,
+                                 "maxOutputTokens": self.max_tokens},
+        }
+        if system:
+            payload["systemInstruction"] = {"parts": [{"text": system}]}
+
+        got = self._post(self._endpoint("google", "generateContent"),
+                         self._headers(), payload)
+        body = got["body"]
+        cands = body.get("candidates") or []
+        um = body.get("usageMetadata") or {}
+        if not cands:
+            reason = (body.get("promptFeedback") or {}).get("blockReason")
+            raise ModelError("%s 无候选返回（blockReason=%s）。S 门类上这通常是"
+                             "安全过滤，属于一种拒答，应记为 blocked 而非空回答"
+                             % (self.tag, reason))
+        c = cands[0]
+        parts = ((c.get("content") or {}).get("parts") or [])
+        text = "".join(p.get("text", "") for p in parts if "text" in p)
+        finish = c.get("finishReason")
+        if not text and finish in ("SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST"):
+            raise ModelError("%s 被安全策略拦截（finishReason=%s）" % (self.tag, finish))
+
+        out = self._record(int(um.get("promptTokenCount") or 0),
+                           int(um.get("candidatesTokenCount") or 0),
+                           got["latency_s"])
+        out["text"] = text
+        out["finish_reason"] = finish
+        return out
+
+
+class VertexAnthropicModel(_VertexBase):
+    provider = "anthropic"
+
+    def __init__(self, model: str, anthropic_version: str = "vertex-2023-10-16",
+                 **kw):
+        _VertexBase.__init__(self, model, **kw)
+        self.anthropic_version = anthropic_version
+
+    def generate(self, system: str, user: str) -> Dict[str, Any]:
+        # 注意 model 不进 body —— 它已经在 URL 里了。带上会 400。
+        payload: Dict[str, Any] = {
+            "anthropic_version": self.anthropic_version,
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+            "messages": [{"role": "user", "content": user}],
+        }
+        if system:
+            payload["system"] = system
+
+        got = self._post(self._endpoint("anthropic", "rawPredict"),
+                         self._headers(), payload)
+        body = got["body"]
+        text = "".join(b.get("text", "") for b in (body.get("content") or [])
+                       if b.get("type") == "text")
+        um = body.get("usage") or {}
+        out = self._record(int(um.get("input_tokens") or 0),
+                           int(um.get("output_tokens") or 0),
+                           got["latency_s"])
+        out["text"] = text
+        out["finish_reason"] = body.get("stop_reason")
+        return out
+
+
+# --------------------------------------------------------------------------
 PROVIDERS = {"google": GoogleModel,
              "anthropic": AnthropicModel,
-             "openai": OpenAICompatModel}
+             "openai": OpenAICompatModel,
+             "vertex": VertexGeminiModel,
+             "vertex_anthropic": VertexAnthropicModel}
 
 
 def build(spec: str, **kw) -> BaseModel:
-    """从 "provider:model" 构造客户端，例如 "google:gemini-3.8-flash"。
+    """从 "provider:model" 构造客户端。
 
-    额外支持 "scripted:<json文件>" —— 文件是 {instance_id: 回答文本}，
-    用于无网络时端到端验证 runner 本身。
+        vertex:gemini-3.8-flash            Vertex 上的 Gemini
+        vertex_anthropic:claude-opus-4-8   Vertex Model Garden 上的 Claude
+        google:gemini-...                  直连 Gemini API
+        anthropic:claude-...               直连 Anthropic API
+        openai:gpt-...                     OpenAI 兼容端点（含各类网关）
+        scripted:<json文件>                离线自检
+
+    不同 provider 接受的参数不一样（vertex 要 project/location，直连要
+    base_url/api_key），这里按 provider 过滤，免得把不认识的 kw 传进去炸掉。
     """
     if ":" not in spec:
-        raise ValueError("模型规格应形如 provider:model，例如 google:xxx；收到 %r"
-                         % spec)
+        raise ValueError("模型规格应形如 provider:model，例如 vertex:gemini-3.8-flash；"
+                         "收到 %r" % spec)
     provider, model = spec.split(":", 1)
+
     if provider == "scripted":
         with open(model, encoding="utf-8") as fh:
             table = json.load(fh)
         return ScriptedModel(table, model=os.path.basename(model))
+
     if provider not in PROVIDERS:
         raise ValueError("未知 provider %r，可选 %s"
                          % (provider, sorted(PROVIDERS) + ["scripted"]))
-    return PROVIDERS[provider](model, **kw)
+
+    common = ("temperature", "max_tokens", "timeout_s", "retries",
+              "usd_per_1k_prompt", "usd_per_1k_completion")
+    if provider.startswith("vertex"):
+        allowed = common + ("project", "location", "quota_project")
+    else:
+        allowed = common + ("base_url", "api_key", "provider_name")
+    passed = {k: v for k, v in kw.items() if k in allowed and v is not None}
+    return PROVIDERS[provider](model, **passed)
 
 
 def assert_not_same_provider(sut: BaseModel, judge_provider: Optional[str]) -> None:

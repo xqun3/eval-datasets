@@ -125,6 +125,9 @@ def main() -> int:
     ap.add_argument("--limit", type=int, help="只跑前 N 条（冒烟用）")
     ap.add_argument("--base-url")
     ap.add_argument("--api-key-env", help="从哪个环境变量读 key")
+    ap.add_argument("--project", help="Vertex project（默认取 ADC 的 quota project）")
+    ap.add_argument("--location", default="global",
+                    help="Vertex location，默认 global")
     ap.add_argument("--temperature", type=float, default=0.0)
     ap.add_argument("--max-tokens", type=int, default=4096)
     ap.add_argument("--budget", type=int, default=prompting.DEFAULT_CONTEXT_BUDGET)
@@ -133,14 +136,21 @@ def main() -> int:
     ap.add_argument("--price-out", type=float, default=0.0,
                     help="美元 / 1k completion tokens")
     ap.add_argument("--judge", action="store_true",
-                    help="给 L3 门类接真实 judge（需 JUDGE_BASE_URL / JUDGE_MODEL）")
+                    help="给 L3 门类接真实 judge（需 JUDGE_VERTEX_MODEL 或 "
+                         "JUDGE_BASE_URL/JUDGE_MODEL）")
+    ap.add_argument("--allow-same-vendor-judge", action="store_true",
+                    help="允许 judge 与被测模型同厂商。默认拒绝——"
+                         "同源评审会 self-preference（benchmark_plan.md §消偏）。"
+                         "放行时每条记录都会打上 judge_caveat 标记")
     ap.add_argument("--sleep", type=float, default=0.0, help="每条之间的间隔秒数")
     args = ap.parse_args()
 
     kw: Dict[str, Any] = {"temperature": args.temperature,
                           "max_tokens": args.max_tokens,
                           "usd_per_1k_prompt": args.price_in,
-                          "usd_per_1k_completion": args.price_out}
+                          "usd_per_1k_completion": args.price_out,
+                          "project": args.project,
+                          "location": args.location}
     if args.base_url:
         kw["base_url"] = args.base_url
     if args.api_key_env:
@@ -148,15 +158,28 @@ def main() -> int:
     model = clients.build(args.model, **kw)
 
     env = None
-    judge_provider = None
+    judge_caveat = None
     if args.judge:
         from judge.runner import make_env      # noqa: E402
         from judge import client as jc         # noqa: E402
         env = make_env()
-        runner = env.get("_judge_runner")
-        if runner and not isinstance(runner.client, jc.StubClient):
-            judge_provider = os.environ.get("JUDGE_PROVIDER")
-            clients.assert_not_same_provider(model, judge_provider)
+        jrun = env.get("_judge_runner")
+        if jrun and not isinstance(jrun.client, jc.StubClient):
+            jp = (os.environ.get("JUDGE_PROVIDER")
+                  or getattr(jrun.client, "provider", None))
+            same = bool(jp) and jp == model.provider
+            if same and not args.allow_same_vendor_judge:
+                clients.assert_not_same_provider(model, jp)
+            if same:
+                # 放行了，但不能让这件事消失在日志里。写进每条记录，
+                # 报表和后续读数据的人都能看到 L3 分数是被污染的。
+                judge_caveat = (
+                    "judge 与被测模型同为 %s 厂商（self-preference 风险）。"
+                    "L3 门类（G4/G5/G10/S）的 rubric 分数存在系统性偏袒，"
+                    "不得用于跨厂商的准入或映射决策。" % jp)
+                print("!" * 78)
+                print("警告: %s" % judge_caveat)
+                print("!" * 78)
 
     os.makedirs(os.path.dirname(os.path.abspath(args.out)) or ".", exist_ok=True)
     counts = {"ok": 0, "parse_failed": 0, "model_error": 0}
@@ -167,6 +190,8 @@ def main() -> int:
             if args.limit and n > args.limit:
                 break
             rec = run_one(model, raw, env, args.budget)
+            if judge_caveat:
+                rec["judge_caveat"] = judge_caveat
             counts[rec["status"]] = counts.get(rec["status"], 0) + 1
             out.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
             out.flush()          # 中途挂掉也保住已跑的部分
